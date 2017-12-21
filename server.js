@@ -1,12 +1,11 @@
-const 	port = 8080
-		http = require('http')
-		url = require('url')
-		fs = require('fs')
+const port = 8080
+const http = require('http')
+const url = require('url')
+const fs = require('fs')
 
 function ServerAction(request, response) {
 	var uri = process.cwd() + request.url
 	url_parts = url.parse(request.url, true)
-	console.log('Request for: ' + uri + ' from ' + request.connection.remoteAddress)
 
 	if (uri.endsWith('/create')) {
 		// CREATE TODO
@@ -15,17 +14,17 @@ function ServerAction(request, response) {
 	} else if (uri.endsWith('/delete')) {
 		// DELETE TODO
 	} else {
-		if (!(uri.endsWith('index.html'))) {
+		if (uri.endsWith('/')) {
 			uri += 'index.html'
 		}
+		console.log('Request for: ' + uri + ' from ' + request.connection.remoteAddress)
 		fs.readFile(uri, function(error, fileContents) {
 			if (error) {
-				var resp = '404\'d!'
-				console.log('Replied: ' + resp)
+				console.log('Replied: 404\'d')
 				response.writeHead(404)
 				response.write(resp)
 			} else {
-				response.writeHead(200, {'Content-Type': 'text/html'})
+				response.writeHead(200)
 				response.write(fileContents)
 				console.log('Replied with ' + uri)
 			}
