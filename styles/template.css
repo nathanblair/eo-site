@@ -24,7 +24,7 @@ nav {
 #menu-toggle {
 	z-index: 5;
 	position: absolute;
-	background-image: url('Icons/menu.png');
+	background-image: url('/icons/menu.png');
 	background-size: 64px;
 	background-repeat: no-repeat;
 	background-position: center;
@@ -39,7 +39,7 @@ nav > ul {
 	display: block;
 }
 #menu-box:checked ~ nav > #menu-toggle {
-	background-image: url('Icons/close.png');
+	background-image: url('/icons/close.png');
 }
 
 nav > ul > li {
