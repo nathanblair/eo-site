@@ -17,6 +17,7 @@ function ReplyToURIRequest(urlPath, response) {
 	}
 
 	var file = pathlib.normalize(process.cwd() + '/' + urlPath)
+	console.log("Reading file: " + file)
 	fslib.readFile(file, function(error, fileContents) {
 		if (error) {
 			reply.statusCode = 404
@@ -44,7 +45,6 @@ function Controller(host, url, response) {
 	var urlPath = parsedURL.pathname
 	var urlQuery = parsedURL.query
 
-	// Map subdomains to respective directories (subdomains are not routed to different IP's)
 	if (!(urlPath.endsWith('.css') || urlPath.endsWith('.png'))) {
 		var hostSplit = host.split('.')
 		var maxIndex = hostSplit.length - 1
@@ -55,7 +55,6 @@ function Controller(host, url, response) {
 
 		urlPath = '/' + hostSplit[maxIndex - 1] + urlPath
 	}
-	
 
 	if (urlPath.endsWith('/create')) {
 		Create()
