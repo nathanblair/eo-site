@@ -1,6 +1,5 @@
 const port = 8080
 const http = require('http')
-
 const urllib = require('url')
 const fslib = require('fs')
 const pathlib = require('path')
@@ -17,7 +16,6 @@ function ReplyToURIRequest(urlPath, response) {
 	}
 
 	var file = pathlib.normalize(pathlib.dirname(require.main.filename) + '/' + urlPath)
-	console.log("Reading file: " + file)
 	fslib.readFile(file, function(error, fileContents) {
 		if (error) {
 			reply.statusCode = 404
