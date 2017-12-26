@@ -16,7 +16,7 @@ function ReplyToURIRequest(urlPath, response) {
 		'logReply': ''
 	}
 
-	var file = pathlib.normalize(process.cwd() + '/' + urlPath)
+	var file = pathlib.normalize(pathlib.dirname(require.main.filename) + '/' + urlPath)
 	console.log("Reading file: " + file)
 	fslib.readFile(file, function(error, fileContents) {
 		if (error) {
