@@ -54,7 +54,8 @@ function Controller(host, url, response) {
 		}
 
 		urlPath = '/' + hostSplit[maxIndex - 1] + urlPath
-	}	
+	}
+	
 
 	if (urlPath.endsWith('/create')) {
 		Create()
