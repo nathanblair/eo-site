@@ -41,11 +41,29 @@ function MapHostToPath(host, maxDomains) {
 	return urlPath
 }
 
+function GetContentTypeFromFile(file) {
+	switch (file.substr(file.lastIndexOf('.'))) {
+		case '.html':
+			return 'text/html'
+		case '.css':
+			return 'text/css'
+		case '.js':
+			return 'application/javascript'
+		case '.png':
+			return 'image/png'
+		case '.jpeg':
+			return 'image/jpeg'
+		default:
+			return 'text/plain'
+	}
+}
+
 function HandleResourceRequest(urlPath, response) {
 	var file = pathlib.normalize(pathlib.dirname(require.main.filename) + '/' + urlPath)
 	fslib.readFile(file, function(error, fileContents) {
 		var logMsg = 'Could not find: ' + file
 		var statusCode = 500
+		var contentType = GetContentTypeFromFile(file)
 		if (!error) {
 			logMsg = 'Replied with: ' + file
 			statusCode = 200
@@ -53,9 +71,10 @@ function HandleResourceRequest(urlPath, response) {
 			fileContents = logMsg
 			statusCode =  404
 		}
-		response.statusCode = statusCode	
+		response.statusCode = statusCode
+		response.setHeader('Content-Type', contentType)	
 		response.write(fileContents)
-		console.log(logMsg)
+		// console.log(logMsg)
 		response.end()
 	})
 }
@@ -70,7 +89,7 @@ function Router(request, response) {
 		urlPath += 'index.html'
 	}
 
-	console.log('Request at {' + host + '} for {' + urlPath + '} from {' + request.connection.remoteAddress + '}')
+	// console.log('Request at {' + host + '} for {' + urlPath + '} from {' + request.connection.remoteAddress + '}')
 
 	var records = []
 	if (Object.keys(urlQuery).length !== 0) records = urlQuery.split(',')
