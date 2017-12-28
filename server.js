@@ -4,83 +4,85 @@ const urllib = require('url')
 const fslib = require('fs')
 const pathlib = require('path')
 
-function Create() {
+function Create(record, response) {
+	// Create a new record and set error to false if it returns with no error
+	var error = true
 
 }
 
-function ReplyToURIRequest(urlPath, response) {
-	var reply = {
-		'statusCode': 500,
-		'replyContents': '',
-		'logReply': ''
+function BulkUpdate(recordsToUpdate, action, response) {
+	// Update records and set error to false if it returns with no error
+	var updatedRecords = []
+	var error = true
+	
+}
+
+function GetRecords(response) {
+	// Get records and return them
+	var records = []
+	var error = true
+}
+
+function GetMain(host, urlPath, response) {
+	var maxDomains = host.split('.').length - 1
+	var urlPath = MapHostToPath(host, maxDomains) + urlPath + '.html'
+	HandleResourceRequest(urlPath, response)
+}
+
+function MapHostToPath(host, maxDomains) {
+	var hostSplit = host.split('.')
+	var maxIndex = hostSplit.length
+
+	var urlPath = '/'
+	for (eachDomain = 0; eachDomain < maxDomains; eachDomain++) {
+		urlPath = urlPath + hostSplit[maxIndex - (eachDomain + 2)] + '/'
 	}
 
+	return urlPath
+}
+
+function HandleResourceRequest(urlPath, response) {
 	var file = pathlib.normalize(pathlib.dirname(require.main.filename) + '/' + urlPath)
 	fslib.readFile(file, function(error, fileContents) {
-		if (error) {
-			reply.statusCode = 404
-			reply.replyContents = '404\'d'
-			reply.logReply = reply.replyContents
+		var logMsg = 'Could not find: ' + file
+		var statusCode = 500
+		if (!error) {
+			logMsg = 'Replied with: ' + file
+			statusCode = 200
 		} else {
-			reply.statusCode = 200
-			reply.replyContents = fileContents
-			reply.logReply = '{' + file + '}'
+			fileContents = logMsg
+			statusCode =  404
 		}
-		WriteResponse(reply, response)
+		response.statusCode = statusCode	
+		response.write(fileContents)
+		console.log(logMsg)
+		response.end()
 	})
-}
-
-function Update() {
-
-}
-
-function Delete() {
-
-}
-
-function Controller(host, url, response) {
-	var parsedURL = urllib.parse(url, true)
-	var urlPath = parsedURL.pathname
-	var urlQuery = parsedURL.query
-
-	if (!(urlPath.endsWith('.css') || urlPath.endsWith('.png'))) {
-		var hostSplit = host.split('.')
-		var maxIndex = hostSplit.length - 1
-
-		if (maxIndex >= 2) {
-			urlPath = '/' + hostSplit[maxIndex - 2] + urlPath
-		}
-
-		urlPath = '/' + hostSplit[maxIndex - 1] + urlPath
-	}
-
-	if (urlPath.endsWith('/create')) {
-		Create()
-	} else if (urlPath.endsWith('/edit')) {
-		Update()
-	} else if (urlPath.endsWith('/delete')) {
-		Delete()
-	} else {
-		ReplyToURIRequest(urlPath, response)
-	}
-}
-
-function WriteResponse(reply, response) {
-	response.writeHead(reply.statusCode)
-	response.write(reply.replyContents)
-	console.log('Replied with: ' + reply.logReply)
-	response.end()
 }
 
 function Router(request, response) {
 	var host = request.headers.host
-	var url = request.url
-	if (url.endsWith('/')) {
-		url += 'index.html'
+	var parsedURL = urllib.parse(request.url, true)
+	var urlPath = parsedURL.pathname
+	var urlQuery = parsedURL.query
+	if (urlPath.endsWith('/')) {
+		urlPath = MapHostToPath(host, 1)
+		urlPath += 'index.html'
 	}
 
-	console.log('Request at {' + host + '} for {' + url + '} from {' + request.connection.remoteAddress + '}')
-	Controller(host, url, response)
+	console.log('Request at {' + host + '} for {' + urlPath + '} from {' + request.connection.remoteAddress + '}')
+
+	var records = []
+	if (Object.keys(urlQuery).length !== 0) records = urlQuery.split(',')
+
+	var actionIndex = urlPath.lastIndexOf('/')
+	var action = urlPath.substr(actionIndex)
+
+	if (action === '/create') { Create(records, response) } 
+	else if (action === '/delete' || action === 'update') { BulkUpdate(records, action, response) }
+	else if (action === '/get') { GetRecords(response) }
+	else if (action === '/main') { GetMain(host, urlPath, response) }
+	else { HandleResourceRequest(urlPath, response) }
 }
 
 var server = http.createServer(Router)

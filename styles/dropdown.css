@@ -1,0 +1,11 @@
+.dropdown {
+	height: 0;
+	overflow: hidden;
+}
+.animated-dropdown {
+	transition: height 0.5s;
+}
+
+.toggle:checked ~ .dropdown-container > .dropdown {
+	height: 192px;
+}

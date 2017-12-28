@@ -4,29 +4,40 @@
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<meta http-equiv="X-UA-Compatible" content="ie=edge">
-	<title>WOW - Home</title>
+	<title>WOW</title>
 	<link rel="stylesheet" href="/styles/template.css">
 	<link rel="stylesheet" href="/styles/utility.css">
+	<link rel="stylesheet" href="/styles/dropdown.css">
 	<link rel="stylesheet" href="/styles/branding-colors.css">
+	<script src="/scripts/jquery-3.2.1.min.js"></script>
 </head>
 <body>
 
-<input type="checkbox" class="display-none" id="menu-box"/>
-<nav>
-	<label id="menu-toggle" class="icon-w-64 icon-h-64 dark-bg" for="menu-box"></label>
-	<ul>
-		<li><a href="/" class="active">Home</a></li>
-		<li><a href="http://inventory.wow.eo:8080">Inventory</a></li>
+<input type="checkbox" class="display-none toggle" id="nav-dropdown-box"/>
+<nav class="dropdown-container">
+	<label id="nav-dropdown-label" class="cursor-pointer icon-w-64 icon-h-64 dark-bg" for="nav-dropdown-box"></label>
+	<ul class="dark-bg display-none">
+		<li><a href="http://wow.eo:8080" id="wow">WOW</a></li>
+		<input type="checkbox" class="display-none toggle" id="inventory-dropdown-box">
+		<li class="dropdown-container">
+			<label id="inventory-dropdown-label" class="cursor-pointer light-fg" for="inventory-dropdown-box">Inventory</label>
+			<ul class="dropdown animated-dropdown">
+				<li><a href="http://inventory.wow.eo:8080/Items/" id="Items">Items</a></li>
+				<li><a href="http://inventory.wow.eo:8080/Borrowers/" id="Borrowers">Borrowers</a></li>
+				<li><a href="http://inventory.wow.eo:8080/Requests/" id="Requests">Requests</a></li>
+			</ul>
+		</li>
 	</ul>
 </nav>
 
 <main>
-
+	<p>Welcome to the WOW Site</p>
 </main>
 
 <footer class="dark-bg light-fg p-1">
 	WOW - Education Outreach 2017
 </footer>
 
+<script src="/scripts/page.js"></script>
 </body>
 </html>
