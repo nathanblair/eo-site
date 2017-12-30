@@ -1,0 +1,31 @@
+main {
+	padding: 3vh 3vw;
+}
+
+.responsive-table {
+	overflow-x: auto;
+}
+
+.db-table {
+	width: 100%;
+	border: solid 1px black;
+	border-collapse: collapse;
+}
+
+.db-table th {
+	padding: 4px 2em;
+	border: solid 1px black;
+}
+
+.db-table td {
+	text-align: center;
+	padding: 4px 0;
+}
+
+.create {
+	height: 84px;
+	width: 84px;
+	position: fixed;
+	bottom: 8vh;
+	left: 3vw;
+}

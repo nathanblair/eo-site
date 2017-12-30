@@ -3,24 +3,44 @@ const http = require('http')
 const urllib = require('url')
 const fslib = require('fs')
 const pathlib = require('path')
+var dblib = require('./database')
 
-function Create(record, response) {
-	// Create a new record and set error to false if it returns with no error
-	var error = true
-
+function GetDBPath(host) {
+	var dbPath = pathlib.normalize(pathlib.dirname(require.main.filename)) + MapHostToPath(host, 2)
+	var dbFile = fslib.readdirSync(dbPath).filter(function(file) {
+		return pathlib.extname(file) === '.db'
+	})
+	return dbPath + dbFile
 }
 
-function BulkUpdate(recordsToUpdate, action, response) {
+function Create(dbPath, table, record, response) {
+	// Create a new record and set error to false if it returns with no error
+	var createdRecord = null
+	var json = {createdRecord}
+	
+	ReturnJSONData(json, response)
+}
+
+function BulkUpdate(dbPath, table, action, recordsToUpdate, response) {
 	// Update records and set error to false if it returns with no error
 	var updatedRecords = []
-	var error = true
+
+	var json = {updatedRecords}
 	
+	ReturnJSONData(json, response)
 }
 
-function GetRecords(response) {
-	// Get records and return them
-	var records = []
-	var error = true
+function GetRecords(dbPath, table, response) {
+	var json = {}
+
+	dblib.Database(dbPath)
+	var sql = 'SELECT * FROM ' + table + ';'
+
+	dblib.db.all(sql, {}, function(error, rows) {
+		if (error) { json = error } else { json = rows }
+		dblib.db.close()
+		ReturnJSONData(json, response)
+	})
 }
 
 function GetMain(host, urlPath, response) {
@@ -53,28 +73,38 @@ function GetContentTypeFromFile(file) {
 			return 'image/png'
 		case '.jpeg':
 			return 'image/jpeg'
+		case '.svg':
+			return 'image/svg+xml'
 		default:
 			return 'text/plain'
 	}
 }
 
+function ReturnJSONData(json, response) {
+	// Get string of json data
+	var jsonString = JSON.stringify(json)
+
+	response.setHeader('Content-Type', 'application/json')
+	response.statusCode = 200
+
+	response.write(jsonString)
+	response.end()
+}
+
 function HandleResourceRequest(urlPath, response) {
 	var file = pathlib.normalize(pathlib.dirname(require.main.filename) + '/' + urlPath)
 	fslib.readFile(file, function(error, fileContents) {
-		var logMsg = 'Could not find: ' + file
 		var statusCode = 500
 		var contentType = GetContentTypeFromFile(file)
 		if (!error) {
-			logMsg = 'Replied with: ' + file
 			statusCode = 200
 		} else {
-			fileContents = logMsg
+			fileContents = 'Could not find file ' + file
 			statusCode =  404
 		}
 		response.statusCode = statusCode
 		response.setHeader('Content-Type', contentType)	
 		response.write(fileContents)
-		// console.log(logMsg)
 		response.end()
 	})
 }
@@ -89,17 +119,16 @@ function Router(request, response) {
 		urlPath += 'index.html'
 	}
 
-	// console.log('Request at {' + host + '} for {' + urlPath + '} from {' + request.connection.remoteAddress + '}')
-
 	var records = []
 	if (Object.keys(urlQuery).length !== 0) records = urlQuery.split(',')
+	var dbPath = GetDBPath(host)
+	var table = urlPath.replace(/^\/|\/.+/g, '')
 
-	var actionIndex = urlPath.lastIndexOf('/')
-	var action = urlPath.substr(actionIndex)
+	var action = urlPath.substr(urlPath.lastIndexOf('/'))
 
-	if (action === '/create') { Create(records, response) } 
-	else if (action === '/delete' || action === 'update') { BulkUpdate(records, action, response) }
-	else if (action === '/get') { GetRecords(response) }
+	if (action === '/create') { Create(dbPath, table, records, response) } 
+	else if (action === '/delete' || action === 'update') { BulkUpdate(dbPath, table, action, records, response) }
+	else if (action === '/get') { GetRecords(dbPath, table, response) }
 	else if (action === '/main') { GetMain(host, urlPath, response) }
 	else { HandleResourceRequest(urlPath, response) }
 }

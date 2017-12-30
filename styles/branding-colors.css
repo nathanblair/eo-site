@@ -5,6 +5,19 @@
 .dark-bg {
 	background-color: #222;
 }
+.dark-button {
+	border-top-color: #444;
+	border-left-color: #444;
+	border-right-color: #101010;
+	border-bottom-color: #101010;
+	transition: border-color 0.1s;
+}
+.dark-button:active {
+	border-top-color: #101010;
+	border-left-color: #101010;
+	border-right-color: #444;
+	border-bottom-color: #444;
+}
 
 .light-fg {
 	color: #eee;
