@@ -9,13 +9,18 @@ if (window.location.pathname !== '/') {
 $(activeElement).addClass('active')
 document.title = document.title + dynamicTitle
 
-$.get('main', function( data ) { $('main').html(data) })
-
-$.get('get', function ( jsonRecords ) { if (!jsonRecords.errno) $('.db-table').html(JSONRecordsToHTMLRows(jsonRecords)) })
+$.get('main', function( data ) {
+	$('main').html(data)
+	$.get('getRecords', function ( jsonRecords ) {
+		if (jsonRecords.errno) { alert('Error: ' + jsonRecords.errno + '\nMessage: ' + jsonRecords.message) }
+		else { $('.db-table').html(WriteTable(jsonRecords)) }
+	})
+})
 
 $('body').on('click', '.create', () => {
-	$.get('create', function( data ) {
-		alert( data.createdRecord )
+	$.get('create', function( jsonRecord ) {
+		if (jsonRecord.errno) { alert('Error: ' + jsonRecord.errno + '\nMessage: ' + jsonRecord.message) }
+		else { $('.db-table > tbody > tr:last-child').after(JSONRecordsToHTMLRows(jsonRecord))}
 	})
 })
 
@@ -48,12 +53,11 @@ function EditRowValue(rowValue) {
 	$(rowValue).focus()
 }
 
-function FlagRowChanged(row, setting) {
+function FlagRowChanged(row, dataChanged) {
 	// Toggle the flags on or off for the row depending on dataChanged state
 	// Also check to see if the flags are already shown first
 	// TODO
-	if (!dataChanged) { trackedRecords.pop() }
-	else { }
+	
 }
 
 function UpdateTrackedRecords(rowValue) {
@@ -69,6 +73,7 @@ function UpdateTrackedRecords(rowValue) {
 	for (eachValue in matchedRecord) {
 		if (currentRecord[eachValue] !== matchedRecord[eachValue]) dataChanged = true
 	}
+	if (!dataChanged) { trackedRecords.pop() }
 	FlagRowChanged($(rowValue.closest('tr'), dataChanged))
 }
 
@@ -87,28 +92,30 @@ function HTMLRowToJSONRecord(htmlRows) {
 	return jsonRecord
 }
 
-function JSONRecordsToHTMLRows(jsonArray) {
-	if (jsonArray.length === 0) { return '' }
-	var html = '<thead><tr><th></th>'
-	
-	Object.keys(jsonArray[0]).forEach( (key) => {
-		if (key !== 'ID') html += '<th>' + key + '</th>'
-	})
-	html += '</thead></tr><tbody>'
-
-	for (var eachRecord = 0; eachRecord < jsonArray.length; eachRecord++) {
+function JSONRecordsToHTMLRows(jsonRecords) {
+	var html = ''
+	for (var eachRecord = 0; eachRecord < jsonRecords.length; eachRecord++) {
 		// Checkbox needs implemented in empty <td> element
 		// Delete icon needs implemented in the empty <td> element
 		// TODO
-		html += '<tr id="' + jsonArray[eachRecord].ID + '"><td></td>'
-		Object.entries(jsonArray[eachRecord]).forEach( ([key, value]) => {
+		html += '<tr id="' + jsonRecords[eachRecord].ID + '"><td></td>'
+		Object.entries(jsonRecords[eachRecord]).forEach( ([key, value]) => {
 			if (key !== 'ID') html += '<td>' + value + '</td>'
 		})
 		html += '</tr>'
 	}
+	return html
+}
 
-	html += '</tbody>'
-
+function WriteTable(jsonRecords) {
+	if (jsonRecords.length === 0) { return '' }
+	var html = '<thead><tr><th></th>'
+	
+	Object.keys(jsonRecords[0]).forEach( (key) => {
+		if (key !== 'ID') html += '<th>' + key + '</th>'
+	})
+	html += '</thead></tr><tbody>' + JSONRecordsToHTMLRows(jsonRecords) + '</tbody>'
+	
 	return html
 }
 
