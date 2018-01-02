@@ -59,11 +59,6 @@ $('body').on('click', '.delete-all, .delete', (eventArgs) => {
 	}
 })
 
-// When row-wise bulk checkbox is toggle, update bulk operations icons
-// TODO
-$('body').on('change', '.db-table .toggle', (eventArgs) => { UpdateCheckedRows(eventArgs) })
-// If checkedRows.length = 0 then remove icons otherwise show them in empty field at top of table
-
 var trackedRecords = []
 var editingID = null
 $('body').on('dblclick touchend', '.db-table > tbody > tr > td', function() {
@@ -74,6 +69,19 @@ $('body').on('dblclick touchend', '.db-table > tbody > tr > td', function() {
 $('body').on('focusout', '.db-table > tbody > tr > td', function() {
 	UpdateTrackedRecords(this)
 })
+
+$('body').on('change', '.db-table > thead > tr .toggle', (eventArgs) => {
+	$('.db-table > thead > tr .checkbox-icon').removeAttr('style')
+	if (eventArgs.currentTarget == eventArgs.target) {
+		$('.db-table > tbody > tr .toggle').prop('checked', eventArgs.currentTarget.checked)
+		$('.db-table > tbody > tr .toggle').change()
+	}
+})
+
+// When row-wise bulk checkbox is toggle, update bulk operations icons
+// TODO
+$('body').on('change', '.db-table > tbody > tr .toggle', (eventArgs) => { UpdateCheckedRows(eventArgs) })
+// If checkedRows.length = 0 then remove icons otherwise show them in empty field at top of table
 
 // ------------------------------------------------------------------------------------------------//
 // ------------------------------------------- FUNCTIONS ------------------------------------------//
@@ -122,11 +130,23 @@ function UpdateTrackedRecords(rowValue) {
 
 function UpdateCheckedRows(eventArgs) {
 	if (eventArgs.target.checked) {
-		$(eventArgs.target).closest('tr').addClass('checked')
+		$(eventArgs.target).closest('tbody > tr').addClass('checked')
 	} else {
-		$(eventArgs.target).closest('tr').removeClass('checked')
+		$(eventArgs.target).closest('tbody > tr').removeClass('checked')
 	}
-	ToggleBulkOpsIcons($('tr.checked').length)
+	if ($('.db-table > tbody > tr.checked').length === $('.db-table > tbody > tr').length) {
+		$('.db-table > thead > tr .toggle').prop('checked', true)
+		$('.db-table > thead > tr .checkbox-icon').removeAttr('style')
+
+	} else if ($('.db-table > tbody > tr.checked').length > 0) {
+		$('.db-table > thead > tr .toggle').prop('checked', false)
+		$('.db-table > thead > tr .checkbox-icon').css('background-image', 'url(/icons/indeterminate.svg')
+	}
+	else {
+		$('.db-table > thead > tr .toggle').prop('checked', false)
+		$('.db-table > thead > tr .checkbox-icon').removeAttr('style')
+	}
+	ToggleBulkOpsIcons($('.db-table > tbody > tr.checked').length)
 }
 
 function ToggleBulkOpsIcons(checkedRowsCount) {
@@ -185,7 +205,9 @@ function WriteTable(jsonRecords) {
 	if (jsonRecords.length === 0) { return '' }
 	// Add refresh line-icon to first header field
 	var html = '<thead><tr><th id="bulk-ops-icons" class="line-height-0">\
+	<input type="checkbox" id="bulk-select-all" class="display-none toggle">\
 	<img src="/icons/refresh.svg" class="refresh line-icon" title="Refresh this table from the database">\
+	<label for="bulk-select-all" class="checkbox-icon line-icon" title="Select all records in table"></label>\
 	<img src="/icons/delete-all.svg" class="delete-all line-icon" title="Delete all selected rows from database">\
 	<img src="/icons/apply-all.svg" class="apply-all line-icon" title="Apply all changes to selected records to database">\
 	<img src="/icons/revert.svg" class="undo-all line-icon" title="Undo all changes to selected records">\
