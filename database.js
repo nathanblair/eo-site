@@ -6,6 +6,4 @@ function Database(path) {
 	})
 }
 
-
-
 exports.Database = Database

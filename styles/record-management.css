@@ -4,6 +4,7 @@ main {
 
 .responsive-table {
 	overflow-x: auto;
+	margin-bottom: 100px;
 }
 
 .db-table {
@@ -14,12 +15,32 @@ main {
 
 .db-table th {
 	padding: 4px 2em;
+	white-space: nowrap;
 	border: solid 1px black;
 }
 
 .db-table td {
 	text-align: center;
 	padding: 4px 0;
+	cursor: default;
+}
+
+.line-icon {
+	display: inline-block;
+	height: 1.25em;
+	width: 1.25em;
+	background-size: 1.25em;
+	background-repeat: no-repeat;
+	background-position: center;
+	cursor: pointer;
+	margin: 0 4px;
+}
+
+.checkbox-icon {
+	background-image: url('/icons/checkbox.svg');
+}
+.toggle:checked ~ .checkbox-icon {
+	background-image: url('/icons/checkbox-checked.svg')
 }
 
 .create {

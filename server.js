@@ -13,36 +13,41 @@ function GetDBPath(host) {
 	return dbPath + dbFile
 }
 
-function Create(db, table, record, response) {
+function Create(db, table, response) {
 	var sql = 'INSERT INTO ' + table + ' DEFAULT VALUES;'
 
 	db.run(sql, function(error, createdRecord) {
 		if (error) { db.close(); ReturnJSON(error, response) }
-		else { GetRecords(db, table, 'ID=$id', {$id:this.lastID}, response) }
+		else { GetRecords(db, table, response, 'WHERE ID=$id', {$id:this.lastID}) }
 	})
 }
 
 function Update(db, table, recordsToUpdate, response) {
 	var updatedRecords = []
-	
+
 	ReturnJSON({updatedRecords}, response)
 }
 
-function Delete(db, table, recordsToDelete, response) {
-	var deletedRecords = []
-	
-	ReturnJSON({deletedRecords}, response)
+function Delete(db, table, idList, response) {
+	var sql = 'DELETE FROM ' + table + ' WHERE ID IN (' + idList.replace(/[0-9]+/g, '?') + ');'
+
+	db.run(sql, idList.split(','), function(error) {
+		if (error) { db.close(); ReturnJSON(error, response) }
+		else {
+			if (this.changes === idList.split(',').length) { db.close(); ReturnJSON(idList.split(','), response) }
+			else { GetRecords(db, table, response, 'WHERE ID IN ($id)', idList, true) }
+		}
+	})
 }
 
-function GetRecords(db, table, filter, params, response) {
-	var json = {}
-	var sql = 'SELECT * FROM ' + table
-	if (filter !== '') sql += ' WHERE ' + filter
-	sql += ';'
+function GetRecords(db, table, response, filterClause = '', params = [], preError = false) {
+	var sql = 'SELECT * FROM ' + table + ' ' + filterClause + ';'
 
-	db.all(sql, params || [], function(error, rows) {
+	db.all(sql, params, function(error, rows) {
 		db.close()
-		if (error) { ReturnJSON(error, response) } else { ReturnJSON(rows, response) }
+		if (error) { ReturnJSON(error, response) }
+		else if (preError) { ReturnJSON({errno:1, msg:'Could not delete rows', rows:rows}, response) }
+		else { ReturnJSON(rows, response) }
 	})
 }
 
@@ -86,7 +91,7 @@ function GetContentTypeFromFile(file) {
 }
 
 function ReturnJSON(json, response) {
-	var jsonString = JSON.stringify(json)
+	var jsonString = JSON.stringify(json).replace(/(^["'])+|(["']$)+/g, '')
 
 	response.setHeader('Content-Type', 'application/json')
 	response.statusCode = 200
@@ -113,35 +118,37 @@ function HandleResourceRequest(urlPath, response) {
 	})
 }
 
-function HandleDatabaseRequest(host, urlPath, urlQuery, action, response) {
-	var records = []
-	if (Object.keys(urlQuery).length !== 0) records = urlQuery.split(',')
-
+function HandleDatabaseRequest(host, urlPath, response, action = 'getRecords', urlQuery = [], records = []) {
 	var dbPath = GetDBPath(host)
 	dblib.Database(dbPath)
 	var table = urlPath.replace(/^\/|\/.+/g, '')
 
-	if (action === '/create') { Create(dblib.db, table, records, response) } 
-	else if (action === '/update') { Update(dblib.db, table, records, response) }
-	else if (action === '/delete') { Delete(dblib.db, table, records, response) }
-	else if (action === '/getRecords') { GetRecords(dblib.db, table, '', null, response) }
+	if (action === 'create') { Create(dblib.db, table, response) } 
+	else if (action === 'update') { Update(dblib.db, table, records, response) }
+	else if (action === 'delete') { Delete(dblib.db, table, records, response) }
+	else if (action === 'getRecords') { GetRecords(dblib.db, table, response, urlQuery) }
 }
 
 function Router(request, response) {
 	var host = ParseHost(request.headers.host)
-	var parsedURL = urllib.parse(request.url, true)
+	var parsedURL = urllib.parse(request.url)
 	var urlPath = parsedURL.pathname
-	var urlQuery = parsedURL.query
+	var urlQuery = parsedURL.query || ''
+	var requestData = ''
 	if (urlPath.endsWith('/')) urlPath = '/' + host.domain + '/index.html'
+	var action = urlPath.substr(urlPath.lastIndexOf('/') + 1)
 
-	var action = urlPath.substr(urlPath.lastIndexOf('/'))
+	if (request.method === 'POST') {
+		request.on('data', (data) => requestData += data.toString() )
+		request.on('end', () => HandleDatabaseRequest(host, urlPath, response, action, urlQuery, requestData))
+		return
+	} 
+	
 	if (action.includes('.')) { HandleResourceRequest(urlPath, response) }
-	else if (action === '/main') { GetMain(host, urlPath, response) }
-	else { HandleDatabaseRequest(host, urlPath, urlQuery, action, response) }
+	else if (action === 'main') { GetMain(host, urlPath, response) }
+	else { HandleDatabaseRequest(host, urlPath, response, action, urlQuery) }
 }
 
 var server = http.createServer(Router)
 
 server.listen(port)
-
-console.log('Server listening on port: ' + port)
