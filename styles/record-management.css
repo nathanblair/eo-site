@@ -21,8 +21,9 @@ main {
 
 .db-table td {
 	text-align: center;
-	padding: 4px 0;
+	padding: 4px 6px;
 	cursor: default;
+	white-space: nowrap;
 }
 
 .line-icon {

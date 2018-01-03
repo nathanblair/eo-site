@@ -40,22 +40,30 @@ $('body').on('click', '.create', (eventArgs) => {
 })
 
 $('body').on('click', '.delete-all, .delete', (eventArgs) => {
-	var idList = ''
-	if ($(eventArgs.target).hasClass('delete')) {
-		idList = $(eventArgs.target).closest('tr').attr('id')
-	} else if ($(eventArgs.target).hasClass('delete-all')) {
-		$('.db-table tbody tr.checked').each(function(index, element) {
-			idList += $(this).attr('id') + ','
-		})
-		idList = idList.replace(/,$/, '')
-	} else { return }
-	var confirmed = confirm('Are you sure you want to delete these ' + idList.split(',').length + ' record(s)?')
+	var idList = GetIDs(eventArgs.target, 'delete', 'delete-all')
 
-	if (confirmed) {
+	if (confirm('Are you sure you want to delete these ' + idList.split(',').length + ' record(s)?')) {
 		$.post('delete', idList, function(jsonRecords) {
 			if (jsonRecords.errno) { ThrowJSONError(jsonRecords) }
 			else { DeleteRecordsFromTable(JSON.parse(jsonRecords)) }
 		}, 'text')
+	}
+})
+
+$('body').on('click', '.undo, .undo-all', (eventArgs) => {
+	var idList = GetIDs(eventArgs.target, 'undo', 'undo-all')
+	idList = idList.split(',')
+
+	if (confirm('Are you sure you want to undo changes to these ' + idList.length + ' record(s)?')) {
+		for (var eachID = 0; eachID < idList.length; eachID++) {
+			for (var eachRecord = trackedRecords.length - 1; eachRecord >= 0; eachRecord--) {
+				if (idList[eachID] === trackedRecords[eachRecord].ID) {
+					$('.db-table > tbody > tr#' + idList[eachID]).replaceWith(JSONRecordsToHTMLRows([trackedRecords[eachRecord]]))
+					trackedRecords.splice(eachRecord, 1)
+				}
+			}
+		}
+		$('.db-table > tbody > tr .toggle').change()
 	}
 })
 
@@ -67,21 +75,18 @@ $('body').on('dblclick touchend', '.db-table > tbody > tr > td', function() {
 })
 
 $('body').on('focusout', '.db-table > tbody > tr > td', function() {
-	UpdateTrackedRecords(this)
+	$(this).removeAttr('contenteditable')
+	UpdateTrackedRecords(this.closest('tr'))
 })
 
 $('body').on('change', '.db-table > thead > tr .toggle', (eventArgs) => {
 	$('.db-table > thead > tr .checkbox-icon').removeAttr('style')
 	if (eventArgs.currentTarget == eventArgs.target) {
-		$('.db-table > tbody > tr .toggle').prop('checked', eventArgs.currentTarget.checked)
-		$('.db-table > tbody > tr .toggle').change()
+		$('.db-table > tbody > tr .toggle').prop('checked', eventArgs.currentTarget.checked).change()
 	}
 })
 
-// When row-wise bulk checkbox is toggle, update bulk operations icons
-// TODO
 $('body').on('change', '.db-table > tbody > tr .toggle', (eventArgs) => { UpdateCheckedRows(eventArgs) })
-// If checkedRows.length = 0 then remove icons otherwise show them in empty field at top of table
 
 // ------------------------------------------------------------------------------------------------//
 // ------------------------------------------- FUNCTIONS ------------------------------------------//
@@ -107,31 +112,53 @@ function EditRowValue(rowValue) {
 function FlagRowChanged(row, dataChanged) {
 	// Toggle the flags on or off for the row depending on dataChanged state
 	// Also check to see if the flags are already shown first
-	// TODO
-	
+	if (!dataChanged) {
+		var index = null
+		for (var eachRecord = 0; eachRecord < trackedRecords.length; eachRecord ++) {
+			if (trackedRecords[eachRecord].ID === $(row).attr('id')) {
+				index = eachRecord
+				break
+			}
+		}
+		if (index !== null) trackedRecords.splice(index, 1)
+		$(row).find('.toggle').prop('checked', false).change()
+	}
+	else {
+		$(row).find('.toggle').prop('checked', true).change()
+	}
 }
 
-function UpdateTrackedRecords(rowValue) {
-	$(rowValue).removeAttr('contenteditable')
+function GetIDs(target, singleClass, multiClass) {
+	var idList = ''
+	if ($(target).hasClass(singleClass)) {
+		idList = $(target).closest('tr').attr('id')
+	} else if ($(target).hasClass(multiClass)) {
+		$('.db-table tbody tr.checked').each(function(index, element) {
+			idList += $(this).attr('id') + ','
+		})
+		idList = idList.replace(/,$/, '')
+	}
+	return idList
+}
 
-	var id = $(rowValue).closest('tr').attr('id')
+function UpdateTrackedRecords(htmlRow) {
+	var id = $(htmlRow).attr('id')
 	var matchedRecord = null
 	for (var eachRecord = 0; eachRecord < trackedRecords.length; eachRecord++) {
 		if (trackedRecords[eachRecord].ID === id) matchedRecord = trackedRecords[eachRecord]
 	}
-	var currentRecord = HTMLRowToJSONRecord($(rowValue).closest('tr'))
+	var currentRecord = HTMLRowToJSONRecord($(htmlRow))
 	var dataChanged = false
-	for (eachValue in matchedRecord) {
+	for (var eachValue in matchedRecord) {
 		if (currentRecord[eachValue] !== matchedRecord[eachValue]) dataChanged = true
 	}
-	if (!dataChanged) { trackedRecords.pop() }
-	FlagRowChanged($(rowValue.closest('tr'), dataChanged))
+	FlagRowChanged($(htmlRow.closest('tr')), dataChanged)
 }
 
 function UpdateCheckedRows(eventArgs) {
 	if (eventArgs.target.checked) {
 		$(eventArgs.target).closest('tbody > tr').addClass('checked')
-	} else {
+	} else if (!eventArgs.target.checked) {
 		$(eventArgs.target).closest('tbody > tr').removeClass('checked')
 	}
 	if ($('.db-table > tbody > tr.checked').length === $('.db-table > tbody > tr').length) {
@@ -159,7 +186,7 @@ function ToggleBulkOpsIcons(checkedRowsCount) {
 
 function DeleteRecordsFromTable(idList) {
 	var selectorArray = ''
-	for (eachID in idList) {
+	for (var eachID in idList) {
 		selectorArray += '#' + idList[eachID] + ','
 	}
 	selectorArray = selectorArray.replace(/,$/, '')
@@ -185,7 +212,6 @@ function JSONRecordsToHTMLRows(jsonRecords) {
 	var id = null
 	for (var eachRecord = 0; eachRecord < jsonRecords.length; eachRecord++) {
 		id = jsonRecords[eachRecord].ID
-		// TODO - Add icons for rolling back and applying changes
 		html += '<tr id="' + id + '"><td class="read-only">\
 		<input type="checkbox" id="bulk-apply-' + id + '" class="display-none toggle">\
 		<label for="bulk-apply-' + id + '" class="checkbox-icon line-icon"></label>\
@@ -203,14 +229,13 @@ function JSONRecordsToHTMLRows(jsonRecords) {
 
 function WriteTable(jsonRecords) {
 	if (jsonRecords.length === 0) { return '' }
-	// Add refresh line-icon to first header field
 	var html = '<thead><tr><th id="bulk-ops-icons" class="line-height-0">\
 	<input type="checkbox" id="bulk-select-all" class="display-none toggle">\
 	<img src="/icons/refresh.svg" class="refresh line-icon" title="Refresh this table from the database">\
 	<label for="bulk-select-all" class="checkbox-icon line-icon" title="Select all records in table"></label>\
 	<img src="/icons/delete-all.svg" class="delete-all line-icon" title="Delete all selected rows from database">\
 	<img src="/icons/apply-all.svg" class="apply-all line-icon" title="Apply all changes to selected records to database">\
-	<img src="/icons/revert.svg" class="undo-all line-icon" title="Undo all changes to selected records">\
+	<img src="/icons/undo-all.svg" class="undo-all line-icon" title="Undo all changes to selected records">\
 	</th>'
 	
 	Object.keys(jsonRecords[0]).forEach( (key) => {
