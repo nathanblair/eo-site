@@ -41,8 +41,6 @@ $('body').on('focusout', '.db-table > tbody > tr > td', (eventArgs) => {
 	var id = $(eventArgs.currentTarget).closest('tr').attr('id')
 	RemoveTrackedRecords([id], LeaveCellRemoveCondition)
 	ToggleRowCheckByChangeState(id)
-	// Need to implement bulk row check updating
-	// Need to test rolling back, deleting, and creating operations
 	// Need to implement and test apply/update operation
 	// Need to implement showing and hiding icons (single and bullk rows)
 })
@@ -64,7 +62,7 @@ $('body').on('change', '.db-table > thead > tr .toggle', (eventArgs) => {
 $('body').on('click', '.refresh', (eventArgs) => {
 	$('.db-table tbody tr').remove()
 	$.getJSON('getRecords', function(jsonRecords) {
-		if (jsonRecords.errno) { ThrowJSONError(jsonRecords) }
+		if (jsonRecords["errno"]) { ThrowJSONError(jsonRecords) }
 		else { $('.db-table > tbody').html(JSONRecordsToHTMLRows(jsonRecords))}
 		trackedRecords = []
 	})
@@ -72,7 +70,8 @@ $('body').on('click', '.refresh', (eventArgs) => {
 
 // ------------------------------------- Undo icon clicked ---------------------------------------//
 $('body').on('click', '.undo, .undo-all', (eventArgs) => {
-	var idList = CreateIDListOfCheckedRows(eventArgs.target)
+	var idList = CreateIDListOfSelectedContext(eventArgs.target)
+	if (idList === '') return
 	var idArray = idList.split(',')
 
 	if (confirm('Are you sure you want to undo changes to these ' + idArray.length + ' record(s)?')) {
@@ -83,22 +82,24 @@ $('body').on('click', '.undo, .undo-all', (eventArgs) => {
 // ------------------------------------- Create icon clicked --------------------------------------//
 $('body').on('click', '.create', (eventArgs) => {
 	$.getJSON('create', function( jsonRecords ) {
-		if (jsonRecords.errno) { ThrowJSONError(jsonRecords) }
+		if (jsonRecords["errno"]) { ThrowJSONError(jsonRecords) }
 		else { $('.db-table > tbody > tr:last-child').after(JSONRecordsToHTMLRows(jsonRecords))}
 	})
 })
 
 // ------------------------------------- Delete icon clicked -------------------------------------//
 $('body').on('click', '.delete, .delete-all', (eventArgs) => {
-	var idList = CreateIDListOfCheckedRows(eventArgs.target)
+	var idList = CreateIDListOfSelectedContext(eventArgs.target)
+	if (idList === '') return
 	var idArray = idList.split(',')
 
 	if (confirm('Are you sure you want to delete these ' + idArray.length + ' record(s)?')) {
 		$.post('delete', idList, function(returnedList) {
-			if (returnedList.errno) { ThrowJSONError(returnedList) }
+			if (returnedList["errno"]) { ThrowJSONError(returnedList) }
 			else {
 				var successList = ProcessIDList(returnedList, idArray)
 				DeleteRecordsFromTable(successList)
+				UpdateCheckedRows()
 				RemoveTrackedRecords(successList, OpRemoveCondition)
 			}
 		}, 'text')
@@ -107,12 +108,13 @@ $('body').on('click', '.delete, .delete-all', (eventArgs) => {
 
 // ----------------------------------- Apply icon clicked ---------------------------------------//
 $('body').on('click', '.apply, .apply-all', (eventArgs) => {
-	var idList = CreateIDListOfCheckedRows(eventArgs.target)
+	var idList = CreateIDListOfSelectedContext(eventArgs.target)
+	if (idList === '') return
 	var idArray = idList.split(',')
 
 	if (confirm('Are you sure you want to apply changes made to these ' + idArray.length + ' record(s)?')) {
 		$.post('update', idList, function(returnedList) {
-			if (returnedList.errno) { ThrowJSONError(returnedList) }
+			if (returnedList["errno"]) { ThrowJSONError(returnedList) }
 			else {
 				var successList = ProcessIDList(returnedList, idArray)
 				RemoveTrackedRecords(successList, OpRemoveCondition, ApplyRowChangeByID)
@@ -131,9 +133,9 @@ function EditCellValue(cell) {
 }
 
 function UpdateCheckedRows(checkedContext) {
-	if (checkedContext.target.checked) {
+	if (checkedContext && checkedContext.target.checked) {
 		$(checkedContext.target).closest('tbody > tr').addClass('checked')
-	} else if (!checkedContext.target.checked) {
+	} else if (checkedContext && !checkedContext.target.checked) {
 		$(checkedContext.target).closest('tbody > tr').removeClass('checked')
 	}
 	if ($('.db-table > tbody > tr.checked').length === $('.db-table > tbody > tr').length) {
@@ -201,7 +203,7 @@ function FindRecordInTrackedRecordsByID(id) {
 	return index
 }
 
-function CreateIDListOfCheckedRows(context) {
+function CreateIDListOfSelectedContext(context) {
 	var idList = ''
 	if ($(context).closest('tr').parent()[0].tagName === 'TBODY') {
 		idList = $(context).closest('tr').attr('id')
