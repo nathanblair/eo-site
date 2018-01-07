@@ -1,138 +1,211 @@
 // ------------------------------------------------------------------------------------------------//
-// ------------------------------------------- PAGE INFO ------------------------------------------//
+// ------------------------------------------- GLOBALS --------------------------------------------//
 // ------------------------------------------------------------------------------------------------//
-var dynamicTitle = ' Home'
-var activeElement = '#'
+var trackedRecords = []
+var dragging = false
+
+// ------------------------------------------------------------------------------------------------//
+// ------------------------------------------ PAGE INFO -------------------------------------------//
+// ------------------------------------------------------------------------------------------------//
 if (window.location.pathname !== '/') {
-	activeElement += window.location.pathname.replace(/^\/|\/$/g, '')
-	dynamicTitle = ' ' + activeElement.substr(1)
+	$('#' + window.location.pathname.replace(/^\/|\/$/g, '')).addClass('active')
+	document.title = document.title + ' ' + window.location.pathname.replace(/^\/|\/$/g, '')
 } else {
-	activeElement += window.location.hostname.split('.')[0]
+	$('#' + window.location.hostname.split('.')[0]).addClass('active')
+	document.title = document.title + ' Home'
 }
-$(activeElement).addClass('active')
-document.title = document.title + dynamicTitle
 
-
-// ------------------------------------------------------------------------------------------------//
-// ------------------------------------------- EVENT TRACKING -------------------------------------//
-// ------------------------------------------------------------------------------------------------//
+// ----------------------------- Get main html and get any associated records ---------------------//
 $.get('main', function( data ) {
 	$('main').html(data)
-	$.getJSON('getRecords', function ( jsonRecords ) {
-		if (jsonRecords.errno) { ThrowJSONError(jsonRecords) }
-		else { $('.db-table').html(WriteTable(jsonRecords)) }
-	})
-})
-
-$('body').on('click', '.refresh', (eventArgs) => {
-	$('.db-table tbody tr').remove()
-	$.getJSON('getRecords', function(jsonRecords) {
-		if (jsonRecords.errno) { ThrowJSONError(jsonRecords) }
-		else { $('.db-table > tbody').html(JSONRecordsToHTMLRows(jsonRecords))}
-	})
-})
-
-$('body').on('click', '.create', (eventArgs) => {
-	$.getJSON('create', function( jsonRecord ) {
-		if (jsonRecord.errno) { ThrowJSONError(jsonRecord) }
-		else { $('.db-table > tbody > tr:last-child').after(JSONRecordsToHTMLRows(jsonRecord))}
-	})
-})
-
-$('body').on('click', '.delete-all, .delete', (eventArgs) => {
-	var idList = GetIDs(eventArgs.target, 'delete', 'delete-all')
-
-	if (confirm('Are you sure you want to delete these ' + idList.split(',').length + ' record(s)?')) {
-		$.post('delete', idList, function(jsonRecords) {
+	if ($('main .db-table').length > 0) {
+		$.getJSON('getRecords', function ( jsonRecords ) {
 			if (jsonRecords.errno) { ThrowJSONError(jsonRecords) }
-			else { DeleteRecordsFromTable(JSON.parse(jsonRecords)) }
-		}, 'text')
+			else { $('.db-table').html(WriteTable(jsonRecords)) }
+		})
 	}
 })
 
-$('body').on('click', '.undo, .undo-all', (eventArgs) => {
-	var idList = GetIDs(eventArgs.target, 'undo', 'undo-all')
-	idList = idList.split(',')
+// ------------------------------------------------------------------------------------------------//
+// --------------------------------------- EVENT TRACKING -----------------------------------------//
+// ------------------------------------------------------------------------------------------------//
+// ------------------------------------ Track dragging input --------------------------------------//
+$('body').on('touchmove', '.db-table > tbody > tr > td', () => dragging = true)
 
-	if (confirm('Are you sure you want to undo changes to these ' + idList.length + ' record(s)?')) {
-		for (var eachID = 0; eachID < idList.length; eachID++) {
-			for (var eachRecord = trackedRecords.length - 1; eachRecord >= 0; eachRecord--) {
-				if (idList[eachID] === trackedRecords[eachRecord].ID) {
-					$('.db-table > tbody > tr#' + idList[eachID]).replaceWith(JSONRecordsToHTMLRows([trackedRecords[eachRecord]]))
-					trackedRecords.splice(eachRecord, 1)
-				}
-			}
-		}
-		$('.db-table > tbody > tr .toggle').change()
-	}
+// --------------------------------------- Edit table cell ----------------------------------------//
+$('body').on('dblclick touchend', '.db-table > tbody > tr > td', (eventArgs) => { EditCellValue(eventArgs.currentTarget); dragging = false })
+
+// ------------------------------------ Leave table cell edit -------------------------------------//
+$('body').on('focusout', '.db-table > tbody > tr > td', (eventArgs) => {
+	$(eventArgs.currentTarget).removeAttr('contenteditable')
+	var id = $(eventArgs.currentTarget).closest('tr').attr('id')
+	RemoveTrackedRecords([id], LeaveCellRemoveCondition)
+	ToggleRowCheckByChangeState(id)
+	// Need to implement bulk row check updating
+	// Need to test rolling back, deleting, and creating operations
+	// Need to implement and test apply/update operation
+	// Need to implement showing and hiding icons (single and bullk rows)
 })
 
-var trackedRecords = []
-var editingID = null
-$('body').on('dblclick touchend', '.db-table > tbody > tr > td', function() {
-	if (!dragging && Editable(this)) EditRowValue(this)
-	dragging = false
-})
+// ------------------------------------- Checked state of row changed -----------------------------//
+$('body').on('change', '.db-table > tbody > tr .toggle', (checkedContext) => { UpdateCheckedRows(checkedContext) })
 
-$('body').on('focusout', '.db-table > tbody > tr > td', function() {
-	$(this).removeAttr('contenteditable')
-	UpdateTrackedRecords(this.closest('tr'))
-})
-
+// --------------------------------- Checked state of bulk icon changed ---------------------------//
 $('body').on('change', '.db-table > thead > tr .toggle', (eventArgs) => {
-	$('.db-table > thead > tr .checkbox-icon').removeAttr('style')
 	if (eventArgs.currentTarget == eventArgs.target) {
 		$('.db-table > tbody > tr .toggle').prop('checked', eventArgs.currentTarget.checked).change()
 	}
 })
 
-$('body').on('change', '.db-table > tbody > tr .toggle', (eventArgs) => { UpdateCheckedRows(eventArgs) })
+// ------------------------------------------------------------------------------------------------//
+// ------------------------------------------ OP ACTIONS ------------------------------------------//
+// ------------------------------------------------------------------------------------------------//
+// ------------------------------------- Refresh icon clicked -------------------------------------//
+$('body').on('click', '.refresh', (eventArgs) => {
+	$('.db-table tbody tr').remove()
+	$.getJSON('getRecords', function(jsonRecords) {
+		if (jsonRecords.errno) { ThrowJSONError(jsonRecords) }
+		else { $('.db-table > tbody').html(JSONRecordsToHTMLRows(jsonRecords))}
+		trackedRecords = []
+	})
+})
+
+// ------------------------------------- Undo icon clicked ---------------------------------------//
+$('body').on('click', '.undo, .undo-all', (eventArgs) => {
+	var idList = CreateIDListOfCheckedRows(eventArgs.target)
+	var idArray = idList.split(',')
+
+	if (confirm('Are you sure you want to undo changes to these ' + idArray.length + ' record(s)?')) {
+		RemoveTrackedRecords(idArray, OpRemoveCondition, UndoRowChangeByID)
+	}
+})
+
+// ------------------------------------- Create icon clicked --------------------------------------//
+$('body').on('click', '.create', (eventArgs) => {
+	$.getJSON('create', function( jsonRecords ) {
+		if (jsonRecords.errno) { ThrowJSONError(jsonRecords) }
+		else { $('.db-table > tbody > tr:last-child').after(JSONRecordsToHTMLRows(jsonRecords))}
+	})
+})
+
+// ------------------------------------- Delete icon clicked -------------------------------------//
+$('body').on('click', '.delete, .delete-all', (eventArgs) => {
+	var idList = CreateIDListOfCheckedRows(eventArgs.target)
+	var idArray = idList.split(',')
+
+	if (confirm('Are you sure you want to delete these ' + idArray.length + ' record(s)?')) {
+		$.post('delete', idList, function(returnedList) {
+			if (returnedList.errno) { ThrowJSONError(returnedList) }
+			else {
+				var successList = ProcessIDList(returnedList, idArray)
+				DeleteRecordsFromTable(successList)
+				RemoveTrackedRecords(successList, OpRemoveCondition)
+			}
+		}, 'text')
+	}
+})
+
+// ----------------------------------- Apply icon clicked ---------------------------------------//
+$('body').on('click', '.apply, .apply-all', (eventArgs) => {
+	var idList = CreateIDListOfCheckedRows(eventArgs.target)
+	var idArray = idList.split(',')
+
+	if (confirm('Are you sure you want to apply changes made to these ' + idArray.length + ' record(s)?')) {
+		$.post('update', idList, function(returnedList) {
+			if (returnedList.errno) { ThrowJSONError(returnedList) }
+			else {
+				var successList = ProcessIDList(returnedList, idArray)
+				RemoveTrackedRecords(successList, OpRemoveCondition, ApplyRowChangeByID)
+			}
+		})
+	}
+})
 
 // ------------------------------------------------------------------------------------------------//
-// ------------------------------------------- FUNCTIONS ------------------------------------------//
+// ------------------------------------------- CALLBACKS ------------------------------------------//
+// ------------------------------------------------------------------------------------------------//
+function EditCellValue(cell) {
+	if (dragging || !Editable(cell)) return
+	$(cell).attr('contenteditable', 'true').focus()
+	AddTrackedRecords($(cell).closest('tr').attr('id'))
+}
+
+function UpdateCheckedRows(checkedContext) {
+	if (checkedContext.target.checked) {
+		$(checkedContext.target).closest('tbody > tr').addClass('checked')
+	} else if (!checkedContext.target.checked) {
+		$(checkedContext.target).closest('tbody > tr').removeClass('checked')
+	}
+	if ($('.db-table > tbody > tr.checked').length === $('.db-table > tbody > tr').length) {
+		$('.db-table > thead > tr .checkbox-icon').removeAttr('style')
+		$('.db-table > thead > tr .toggle').prop('checked', true)
+
+	} else if ($('.db-table > tbody > tr.checked').length > 0) {
+		$('.db-table > thead > tr .toggle').prop('checked', false)
+		$('.db-table > thead > tr .checkbox-icon').css('background-image', 'url(/icons/indeterminate.svg')
+	}
+	else {
+		$('.db-table > thead > tr .checkbox-icon').removeAttr('style')
+		$('.db-table > thead > tr .toggle').prop('checked', false)
+	}
+}
+
+function LeaveCellRemoveCondition(id, originalRecord) {
+	var newRecord = HTMLRowsToJSONRecords($(GetRowSelector([id])))[0]
+	for(eachProperty in originalRecord) {
+		if (originalRecord[eachProperty] !== newRecord[eachProperty]) return false
+	}
+	return true
+}
+
+function OpRemoveCondition(id, originalRecord) {
+	return id === originalRecord.ID
+}
+
+function UndoRowChangeByID(id, originalRecord) {
+	$(GetRowSelector([id])).replaceWith(JSONRecordsToHTMLRows([originalRecord]))
+	$(GetRowSelector([id]) + ' .toggle').change()
+}
+
+function ApplyRowChangeByID(id, originalRecord) {
+	// Update checkboxes
+}
+
+function DeleteRecordsFromTable(idArray) { $(GetRowSelector(idArray)).remove() }
+
+// ------------------------------------------------------------------------------------------------//
+// ------------------------------------------- HELPERS --------------------------------------------//
 // ------------------------------------------------------------------------------------------------//
 function Editable(element) {
 	if ($(element).hasClass('read-only')) return false
 	return true
 }
 
-function EditRowValue(rowValue) {
-	var id = $(rowValue).closest('tr').attr('id')
-	
-	var match = false
+function GetRowSelector(idList) {
+	var rowSelector = '.db-table > tbody > '
+	for(var eachID = 0; eachID < idList.length; eachID++) {
+		rowSelector += 'tr#' + idList[eachID] + ','
+	}
+	return rowSelector.replace(/,$/, '')
+}
+
+function ThrowJSONError(json) {
+	alert(JSON.stringify(json))
+}
+
+function FindRecordInTrackedRecordsByID(id) {
+	var index = null
 	for (var eachRecord = 0; eachRecord < trackedRecords.length; eachRecord++) {
-		if (trackedRecords[eachRecord].ID === id) match = true
+		if (trackedRecords[eachRecord].ID === id) { index = eachRecord; break }
 	}
-	if (!match) trackedRecords.push(HTMLRowToJSONRecord($(rowValue).closest('tr')))
-	
-	$(rowValue).attr('contenteditable', 'true')
-	$(rowValue).focus()
+	return index
 }
 
-function FlagRowChanged(row, dataChanged) {
-	// Toggle the flags on or off for the row depending on dataChanged state
-	// Also check to see if the flags are already shown first
-	if (!dataChanged) {
-		var index = null
-		for (var eachRecord = 0; eachRecord < trackedRecords.length; eachRecord ++) {
-			if (trackedRecords[eachRecord].ID === $(row).attr('id')) {
-				index = eachRecord
-				break
-			}
-		}
-		if (index !== null) trackedRecords.splice(index, 1)
-		$(row).find('.toggle').prop('checked', false).change()
-	}
-	else {
-		$(row).find('.toggle').prop('checked', true).change()
-	}
-}
-
-function GetIDs(target, singleClass, multiClass) {
+function CreateIDListOfCheckedRows(context) {
 	var idList = ''
-	if ($(target).hasClass(singleClass)) {
-		idList = $(target).closest('tr').attr('id')
-	} else if ($(target).hasClass(multiClass)) {
+	if ($(context).closest('tr').parent()[0].tagName === 'TBODY') {
+		idList = $(context).closest('tr').attr('id')
+	} else if ($(context).closest('tr').parent()[0].tagName === 'THEAD') {
 		$('.db-table tbody tr.checked').each(function(index, element) {
 			idList += $(this).attr('id') + ','
 		})
@@ -141,70 +214,62 @@ function GetIDs(target, singleClass, multiClass) {
 	return idList
 }
 
-function UpdateTrackedRecords(htmlRow) {
-	var id = $(htmlRow).attr('id')
-	var matchedRecord = null
-	for (var eachRecord = 0; eachRecord < trackedRecords.length; eachRecord++) {
-		if (trackedRecords[eachRecord].ID === id) matchedRecord = trackedRecords[eachRecord]
-	}
-	var currentRecord = HTMLRowToJSONRecord($(htmlRow))
-	var dataChanged = false
-	for (var eachValue in matchedRecord) {
-		if (currentRecord[eachValue] !== matchedRecord[eachValue]) dataChanged = true
-	}
-	FlagRowChanged($(htmlRow.closest('tr')), dataChanged)
+function ToggleRowCheckByChangeState(id) {
+	var state = false
+	if(FindRecordInTrackedRecordsByID(id) !== null) { state = true }
+	$(GetRowSelector([id]) + ' .toggle').prop('checked', state).change()
 }
 
-function UpdateCheckedRows(eventArgs) {
-	if (eventArgs.target.checked) {
-		$(eventArgs.target).closest('tbody > tr').addClass('checked')
-	} else if (!eventArgs.target.checked) {
-		$(eventArgs.target).closest('tbody > tr').removeClass('checked')
+function ProcessIDList(errorList, idList) {
+	var successList = []
+	for(var eachID = 0; eachID < idList.length; eachID++) {
+		var match = false
+		for (var eachError = 0; eachError < errorList.length; eachError++) {
+			if (idList[eachID] === errorList[eachError]) { match = true; break }
+		}
+		if (!match) { successList.push(idList[eachID]); }
 	}
-	if ($('.db-table > tbody > tr.checked').length === $('.db-table > tbody > tr').length) {
-		$('.db-table > thead > tr .toggle').prop('checked', true)
-		$('.db-table > thead > tr .checkbox-icon').removeAttr('style')
-
-	} else if ($('.db-table > tbody > tr.checked').length > 0) {
-		$('.db-table > thead > tr .toggle').prop('checked', false)
-		$('.db-table > thead > tr .checkbox-icon').css('background-image', 'url(/icons/indeterminate.svg')
-	}
-	else {
-		$('.db-table > thead > tr .toggle').prop('checked', false)
-		$('.db-table > thead > tr .checkbox-icon').removeAttr('style')
-	}
-	ToggleBulkOpsIcons($('.db-table > tbody > tr.checked').length)
+	return successList
 }
 
-function ToggleBulkOpsIcons(checkedRowsCount) {
-	if (checkedRowsCount) {
-		// Show if not already shown
-	} else {
-		// Hide if not already hidden
+function AddTrackedRecords(id) {
+	if (FindRecordInTrackedRecordsByID(id) === null) trackedRecords = trackedRecords.concat(HTMLRowsToJSONRecords($(GetRowSelector([id]))))
+}
+
+function RemoveTrackedRecords(removeList, TestCondition, Callback = null) {
+	for(var outerIndex = 0; outerIndex < removeList.length; outerIndex++) {
+		for (var innerIndex = trackedRecords.length - 1; innerIndex >= 0; innerIndex--) {
+			if (TestCondition(removeList[outerIndex], trackedRecords[innerIndex])) {
+				if (Callback) Callback(removeList[outerIndex], trackedRecords[innerIndex])
+				trackedRecords.splice(innerIndex, 1)
+			}
+		}
 	}
 }
 
-function DeleteRecordsFromTable(idList) {
-	var selectorArray = ''
-	for (var eachID in idList) {
-		selectorArray += '#' + idList[eachID] + ','
+function ToggleRowIcons(idList) {
+	for(var eachID = 0; eachID < idList.length; eachID++) {
+		if (FindRecordInTrackedRecordsByID(eachID) !== null) {
+			// Show icons
+		} else {
+			// Hide icons
+		}
 	}
-	selectorArray = selectorArray.replace(/,$/, '')
-	$(selectorArray).remove()
 }
 
-function HTMLRowToJSONRecord(htmlRows) {
-	var jsonRecord = {}
+function HTMLRowsToJSONRecords(htmlRows) {
+	var jsonRecords = []
 
 	for (var eachRow = 0; eachRow < htmlRows.length; eachRow++) {
-		jsonRecord.ID = $(htmlRows[eachRow]).attr('id')
+		jsonRecords[eachRow] = {}
+		jsonRecords[eachRow].ID = $(htmlRows[eachRow]).attr('id')
 		var tdElements = $(htmlRows[eachRow]).children('td')
 		for (var eachData = 1; eachData < tdElements.length; eachData++) {
 			var header = $('.db-table th:eq(' + eachData + ')').text()
-			jsonRecord[header] = tdElements[eachData].textContent
+			jsonRecords[eachRow][header] = tdElements[eachData].textContent
 		}
 	}
-	return jsonRecord
+	return jsonRecords
 }
 
 function JSONRecordsToHTMLRows(jsonRecords) {
@@ -245,11 +310,3 @@ function WriteTable(jsonRecords) {
 	
 	return html
 }
-
-function ThrowJSONError(json) {
-	alert(JSON.stringify(json))
-}
-
-var dragging = false
-$('body').on('touchmove', '.db-table > tbody > tr > td', () => { dragging = true })
-

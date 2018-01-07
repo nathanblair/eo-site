@@ -25,7 +25,7 @@ function Create(db, table, response) {
 function Update(db, table, recordsToUpdate, response) {
 	var updatedRecords = []
 
-	ReturnJSON({updatedRecords}, response)
+	ReturnJSON(updatedRecords, response)
 }
 
 function Delete(db, table, idList, response) {
@@ -33,20 +33,16 @@ function Delete(db, table, idList, response) {
 
 	db.run(sql, idList.split(','), function(error) {
 		if (error) { db.close(); ReturnJSON(error, response) }
-		else {
-			if (this.changes === idList.split(',').length) { db.close(); ReturnJSON(idList.split(','), response) }
-			else { GetRecords(db, table, response, 'WHERE ID IN ($id)', idList, true) }
-		}
+		else { GetRecords(db, table, response, 'WHERE ID IN ($id)', idList) }
 	})
 }
 
-function GetRecords(db, table, response, filterClause = '', params = [], preError = false) {
+function GetRecords(db, table, response, filterClause = '', params = []) {
 	var sql = 'SELECT * FROM ' + table + ' ' + filterClause + ';'
 
 	db.all(sql, params, function(error, rows) {
 		db.close()
 		if (error) { ReturnJSON(error, response) }
-		else if (preError) { ReturnJSON({errno:1, msg:'Could not delete rows', rows:rows}, response) }
 		else { ReturnJSON(rows, response) }
 	})
 }
