@@ -5,9 +5,10 @@ var trackedRecords = []
 var queued = 0
 var dragging = false
 
-	// Need to implement and test apply/update operation
-	// Need to implement showing and hiding icons (single and bullk rows)
-	// Need to implement keyboard navigation
+// Still working on testing update/rollback operations
+// Then need to decide on when to show and hide rollback icon
+// Then can start implementing keyboard shortcuts
+
 // ------------------------------------------------------------------------------------------------//
 // ------------------------------------------ PAGE INFO -------------------------------------------//
 // ------------------------------------------------------------------------------------------------//
@@ -59,8 +60,9 @@ $('body').on('focusout', '.db-table > tbody > tr > td', (eventArgs) => {
 		[$('.db-table > thead th:eq(' + $(eventArgs.currentTarget).index() + ')').text()]:
 			parseInt($(eventArgs.currentTarget).text()) || $(eventArgs.currentTarget).text()
 	}}
-	$.post('update', JSON.stringify(passedJSON), (returnedID) => {
-		if (returnedID["errno"]) { ThrowJSONError(returnedID) }
+	$.post('update', JSON.stringify(passedJSON), (updates) => {
+		if (updates["errno"] || updates.length > 1) { ThrowJSONError(updates) }
+		else { $(eventArgs.currentTarget).text(Object.values(updates[0])[1]) }
 		$(eventArgs.currentTarget).removeAttr('contenteditable')
 		UpdateOpStatus(false)
 	}, 'json')
@@ -93,11 +95,15 @@ $('body').on('click', '.refresh', (eventArgs) => {
 
 // ------------------------------------- Undo icon clicked ---------------------------------------//
 $('body').on('click', '.undo, .undo-all', (eventArgs) => {
-	if (trackedRecords.length === 0) { alert("There are no changes to roll back!"); return }
 	var idList = CreateIDListOfSelectedContext(eventArgs.target)
 	var idArray = idList.split(',')
 	var undoRecords = GetOriginalRecordValues(idArray)
-	if (confirm('Are you sure you want to undo changes to these ' + idArray.length + ' record(s)?')) { PostUndoUpdate(undoRecords) }
+	if (undoRecords.length === 0) { alert("There are no changes to roll back for a selected record!"); return }
+	else if (undoRecords.length !== idArray.length) { alert("There were " + (idArray.length - undoRecords.length) + " record(s) selected that will not be undone\nThese record(s) do not have rollback entries") }
+	if (confirm('Are you sure you want to undo changes to these ' + undoRecords.length + ' record(s)?')) {
+		UpdateOpStatus(true, undoRecords.length)
+		PostUndoUpdate(undoRecords)
+	}
 })
 
 // ------------------------------------- Create icon clicked --------------------------------------//
@@ -144,7 +150,6 @@ function OpRemoveCondition(id, originalRecord) { return id === parseInt(original
 
 function PostUndoUpdate(undoRecords) {
 	if (undoRecords.length === 0) return;
-	UpdateOpStatus(true)
 	$.post('update', JSON.stringify(undoRecords[undoRecords.length - 1]), (returnedRecords) => {
 		if (returnedRecords["errno"]) { ThrowJSONError(returnedRecords) }
 		RemoveTrackedRecords([returnedRecords[0].ID], OpRemoveCondition, UndoRowChange)
@@ -192,23 +197,17 @@ function CreateIDListOfSelectedContext(context) {
 	var idList = ''
 	if ($(context).closest('tr').parent()[0].tagName === 'TBODY') { idList = $(context).closest('tr').attr('id') }
 	else if ($(context).closest('tr').parent()[0].tagName === 'THEAD') {
-		$('.db-table tbody tr.checked').each(function(index, element) {
-			idList += $(this).attr('id') + ','
-		})
+		$('.db-table tbody tr.checked').each(function(index, element) { idList += $(this).attr('id') + ',' })
 		idList = idList.replace(/,$/, '')
 	}
 	return idList
 }
 
-function UpdateOpStatus(status) {
-	if (status) { queued++ } else { queued-- }
+function UpdateOpStatus(status, increment = null) {
+	if (status && increment) {queued += increment } else if (status) { queued++ } else { queued-- }
 	$('#queue-count > span').text(queued)
-	if ((queued > 0) && $('#queue-count').hasClass('display-none')) {
-		$('#queue-count').removeClass('display-none')
-	}
-	else if (!queued && !($('#queue-count').hasClass('display-none'))) {
-		$('#queue-count').addClass('display-none')
-	}
+	if ((queued > 0) && $('#queue-count').hasClass('display-none')) { $('#queue-count').removeClass('display-none') }
+	else if (!queued && !($('#queue-count').hasClass('display-none'))) { $('#queue-count').addClass('display-none') }
 }
 
 function ProcessIDList(errorList, idList) {
@@ -218,7 +217,7 @@ function ProcessIDList(errorList, idList) {
 		for (var eachError = 0; eachError < errorList.length; eachError++) {
 			if (idList[eachID] === errorList[eachError]) { match = true; break }
 		}
-		if (!match) { successList.push(idList[eachID]); }
+		if (!match) successList.push(idList[eachID])
 	}
 	return successList
 }
@@ -240,9 +239,11 @@ function RemoveTrackedRecords(removeList, TestCondition, Callback = null) {
 function GetOriginalRecordValues(idList) {
 	var changedRecords = []
 	for (var eachID = 0; eachID < idList.length; eachID++) {
+		let trackedIndex = FindRecordInTrackedRecords(idList[eachID])
+		if (trackedIndex === null) continue
 		var fieldChanges = {}
 		var record = HTMLRowsToJSONRecords($(GetRowSelector([idList[eachID]])))[0]
-		var compareRecord = trackedRecords[FindRecordInTrackedRecords(idList[eachID])]
+		var compareRecord = trackedRecords[trackedIndex]
 		for (var eachProperty in record) {
 			if (record[eachProperty] !== compareRecord[eachProperty]) {
 				fieldChanges[eachProperty] = parseInt(compareRecord[eachProperty]) || compareRecord[eachProperty]
@@ -251,16 +252,6 @@ function GetOriginalRecordValues(idList) {
 		changedRecords.push({'id':idList[eachID], 'fields':fieldChanges})
 	}
 	return changedRecords
-}
-
-function ToggleRowIcons(idList) {
-	for (var eachID = 0; eachID < idList.length; eachID++) {
-		if (FindRecordInTrackedRecords(eachID) !== null) {
-			// Show icons
-		} else {
-			// Hide icons
-		}
-	}
 }
 
 function UpdateCheckedRows(checkedContext) {
