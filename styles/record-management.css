@@ -1,6 +1,4 @@
-main {
-	padding: 3vh 3vw;
-}
+main { padding: 3vh 3vw; }
 
 .responsive-table {
 	overflow-x: auto;
@@ -49,5 +47,38 @@ main {
 	width: 84px;
 	position: fixed;
 	bottom: 8vh;
-	left: 3vw;
+	left: 4vw;
+	background-color: #fff;
 }
+
+.await {
+	display: block;
+	height: 84px;
+	width: 84px;
+	margin: 0 auto;
+	animation: rotating 3s linear infinite;
+	z-index: 5;
+	position: relative;
+	background-color: #fff;
+}
+
+.queue-label {
+	font-size: 1.5em;
+	position: fixed;
+	bottom: 10vh;
+	left: 0;
+	height: 84px;
+	width: 100%;
+	text-align: center;
+}
+.queue-label > span {
+	position: absolute;
+	z-index: 10;
+	top: 50%;
+	left: 50%;	
+	transform: translate(-50%, -50%);
+}
+
+@keyframes rotating { 100% {
+	transform: rotate(360deg);
+}}

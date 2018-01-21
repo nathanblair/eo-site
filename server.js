@@ -22,10 +22,21 @@ function Create(db, table, response) {
 	})
 }
 
-function Update(db, table, recordsToUpdate, response) {
-	var updatedRecords = []
+function Update(db, table, recordToUpdate, response) {
+	var updateRecord = JSON.parse(recordToUpdate)
+	var updateClause = ''
+	for (var eachField in updateRecord.fields) {
+		updateClause += eachField + '=$' + eachField + ','
+	}
+	updateClause = updateClause.replace(/,$/, '')
+	var sql = "UPDATE " + table + " SET " + updateClause + " WHERE ID=$id;"
+	var params = Object.values(updateRecord.fields)
+	params.push(updateRecord.id)
 
-	ReturnJSON(updatedRecords, response)
+	db.run(sql, params, function(error) {
+		if (error) { db.close(); ReturnJSON(error, response) }
+		else { GetRecords(db, table, response, 'WHERE ID IN ($id)', updateRecord.id, Object.keys(updateRecord.fields)) }
+	})
 }
 
 function Delete(db, table, idList, response) {
@@ -33,28 +44,22 @@ function Delete(db, table, idList, response) {
 
 	db.run(sql, idList.split(','), function(error) {
 		if (error) { db.close(); ReturnJSON(error, response) }
-		else { GetRecords(db, table, response, 'WHERE ID IN ($id)', idList) }
+		else { GetRecords(db, table, response, 'WHERE ID IN ($id)', idList, ['ID']) }
 	})
 }
 
-function GetRecords(db, table, response, filterClause = '', params = []) {
-	var sql = 'SELECT * FROM ' + table + ' ' + filterClause + ';'
+function GetRecords(db, table, response, filterClause = '', params = [], fields = '*') {
+	var selectFields = 'ID,'
+	if (fields !== '*') { for (var eachField = 0; eachField < fields.length; eachField++) { selectFields += fields[eachField] + ',' }; selectFields = selectFields.replace(/,$/, '') }
+	else { selectFields = fields }
+	var sql = 'SELECT ' + selectFields + ' FROM ' + table + ' ' + filterClause + ';'
 
-	db.all(sql, params, function(error, rows) {
-		db.close()
-		if (error) { ReturnJSON(error, response) }
-		else { ReturnJSON(rows, response) }
-	})
+	db.all(sql, params, function(error, rows) { db.close(); if (error) { ReturnJSON(error, response) } else { ReturnJSON(rows, response) } })
 }
 
-function GetMain(host, urlPath, response) {
-	var urlPath = MapHostToPath(host) + urlPath + '.html'
-	HandleResourceRequest(urlPath, response)
-}
+function GetMain(host, urlPath, response) { HandleResourceRequest(MapHostToPath(host) + urlPath + '.html', response) }
 
-function MapHostToPath(host) {
-	return '/' + host.domain + '/' + host.subdomain + '/'
-}
+function MapHostToPath(host) { return '/' + host.domain + '/' + host.subdomain + '/' }
 
 function ParseHost(host) {
 	var hostSplit = host.split('.')

@@ -2,8 +2,12 @@
 // ------------------------------------------- GLOBALS --------------------------------------------//
 // ------------------------------------------------------------------------------------------------//
 var trackedRecords = []
+var queued = 0
 var dragging = false
 
+	// Need to implement and test apply/update operation
+	// Need to implement showing and hiding icons (single and bullk rows)
+	// Need to implement keyboard navigation
 // ------------------------------------------------------------------------------------------------//
 // ------------------------------------------ PAGE INFO -------------------------------------------//
 // ------------------------------------------------------------------------------------------------//
@@ -33,16 +37,33 @@ $.get('main', function( data ) {
 $('body').on('touchmove', '.db-table > tbody > tr > td', () => dragging = true)
 
 // --------------------------------------- Edit table cell ----------------------------------------//
-$('body').on('dblclick touchend', '.db-table > tbody > tr > td', (eventArgs) => { EditCellValue(eventArgs.currentTarget); dragging = false })
+$('body').on('dblclick touchend', '.db-table > tbody > tr > td', (eventArgs) => {
+	if (dragging || !Editable(eventArgs.currentTarget)) return
+	var id = $(eventArgs.currentTarget).closest('tr').attr('id')
+
+	if (FindRecordInTrackedRecords(id) === null) trackedRecords = trackedRecords.concat(HTMLRowsToJSONRecords($(GetRowSelector([id]))))
+	$(eventArgs.currentTarget).attr('contenteditable', 'true').focus()
+	dragging = false
+})
 
 // ------------------------------------ Leave table cell edit -------------------------------------//
 $('body').on('focusout', '.db-table > tbody > tr > td', (eventArgs) => {
-	$(eventArgs.currentTarget).removeAttr('contenteditable')
+	UpdateOpStatus(true)
 	var id = $(eventArgs.currentTarget).closest('tr').attr('id')
-	RemoveTrackedRecords([id], LeaveCellRemoveCondition)
-	ToggleRowCheckByChangeState(id)
-	// Need to implement and test apply/update operation
-	// Need to implement showing and hiding icons (single and bullk rows)
+	if (RemoveTrackedRecords([id], LeaveCellRemoveCondition).length >= 1) {
+		$(eventArgs.currentTarget).removeAttr('contenteditable')
+		UpdateOpStatus(false)
+		return;
+	}
+	var passedJSON = {'id':id, fields:{
+		[$('.db-table > thead th:eq(' + $(eventArgs.currentTarget).index() + ')').text()]:
+			parseInt($(eventArgs.currentTarget).text()) || $(eventArgs.currentTarget).text()
+	}}
+	$.post('update', JSON.stringify(passedJSON), (returnedID) => {
+		if (returnedID["errno"]) { ThrowJSONError(returnedID) }
+		$(eventArgs.currentTarget).removeAttr('contenteditable')
+		UpdateOpStatus(false)
+	}, 'json')
 })
 
 // ------------------------------------- Checked state of row changed -----------------------------//
@@ -60,30 +81,32 @@ $('body').on('change', '.db-table > thead > tr .toggle', (eventArgs) => {
 // ------------------------------------------------------------------------------------------------//
 // ------------------------------------- Refresh icon clicked -------------------------------------//
 $('body').on('click', '.refresh', (eventArgs) => {
+	UpdateOpStatus(true)
 	$('.db-table tbody tr').remove()
 	$.getJSON('getRecords', function(jsonRecords) {
 		if (jsonRecords["errno"]) { ThrowJSONError(jsonRecords) }
 		else { $('.db-table > tbody').html(JSONRecordsToHTMLRows(jsonRecords))}
 		trackedRecords = []
+		UpdateOpStatus(false)
 	})
 })
 
 // ------------------------------------- Undo icon clicked ---------------------------------------//
 $('body').on('click', '.undo, .undo-all', (eventArgs) => {
+	if (trackedRecords.length === 0) { alert("There are no changes to roll back!"); return }
 	var idList = CreateIDListOfSelectedContext(eventArgs.target)
-	if (idList === '') return
 	var idArray = idList.split(',')
-
-	if (confirm('Are you sure you want to undo changes to these ' + idArray.length + ' record(s)?')) {
-		RemoveTrackedRecords(idArray, OpRemoveCondition, UndoRowChangeByID)
-	}
+	var undoRecords = GetOriginalRecordValues(idArray)
+	if (confirm('Are you sure you want to undo changes to these ' + idArray.length + ' record(s)?')) { PostUndoUpdate(undoRecords) }
 })
 
 // ------------------------------------- Create icon clicked --------------------------------------//
 $('body').on('click', '.create', (eventArgs) => {
+	UpdateOpStatus(true)
 	$.getJSON('create', function( jsonRecords ) {
 		if (jsonRecords["errno"]) { ThrowJSONError(jsonRecords) }
 		else { $('.db-table > tbody > tr:last-child').after(JSONRecordsToHTMLRows(jsonRecords))}
+		UpdateOpStatus(false)
 	})
 })
 
@@ -92,8 +115,9 @@ $('body').on('click', '.delete, .delete-all', (eventArgs) => {
 	var idList = CreateIDListOfSelectedContext(eventArgs.target)
 	if (idList === '') return
 	var idArray = idList.split(',')
-
+	
 	if (confirm('Are you sure you want to delete these ' + idArray.length + ' record(s)?')) {
+		UpdateOpStatus(true)
 		$.post('delete', idList, function(returnedList) {
 			if (returnedList["errno"]) { ThrowJSONError(returnedList) }
 			else {
@@ -102,34 +126,141 @@ $('body').on('click', '.delete, .delete-all', (eventArgs) => {
 				UpdateCheckedRows()
 				RemoveTrackedRecords(successList, OpRemoveCondition)
 			}
+			UpdateOpStatus(false)
 		}, 'text')
-	}
-})
-
-// ----------------------------------- Apply icon clicked ---------------------------------------//
-$('body').on('click', '.apply, .apply-all', (eventArgs) => {
-	var idList = CreateIDListOfSelectedContext(eventArgs.target)
-	if (idList === '') return
-	var idArray = idList.split(',')
-
-	if (confirm('Are you sure you want to apply changes made to these ' + idArray.length + ' record(s)?')) {
-		$.post('update', idList, function(returnedList) {
-			if (returnedList["errno"]) { ThrowJSONError(returnedList) }
-			else {
-				var successList = ProcessIDList(returnedList, idArray)
-				RemoveTrackedRecords(successList, OpRemoveCondition, ApplyRowChangeByID)
-			}
-		})
 	}
 })
 
 // ------------------------------------------------------------------------------------------------//
 // ------------------------------------------- CALLBACKS ------------------------------------------//
 // ------------------------------------------------------------------------------------------------//
-function EditCellValue(cell) {
-	if (dragging || !Editable(cell)) return
-	$(cell).attr('contenteditable', 'true').focus()
-	AddTrackedRecords($(cell).closest('tr').attr('id'))
+function LeaveCellRemoveCondition(id, originalRecord) {
+	var newRecord = HTMLRowsToJSONRecords($(GetRowSelector([id])))[0]
+	for (var eachProperty in originalRecord) { if (originalRecord[eachProperty] !== newRecord[eachProperty]) return false }
+	return true
+}
+
+function OpRemoveCondition(id, originalRecord) { return id === parseInt(originalRecord.ID) }
+
+function PostUndoUpdate(undoRecords) {
+	if (undoRecords.length === 0) return;
+	UpdateOpStatus(true)
+	$.post('update', JSON.stringify(undoRecords[undoRecords.length - 1]), (returnedRecords) => {
+		if (returnedRecords["errno"]) { ThrowJSONError(returnedRecords) }
+		RemoveTrackedRecords([returnedRecords[0].ID], OpRemoveCondition, UndoRowChange)
+		undoRecords.pop()
+		UpdateOpStatus(false)
+		PostUndoUpdate(undoRecords)
+	}, 'json')
+}
+
+
+function UndoRowChange(id, originalRecord) {
+	var newRecord = HTMLRowsToJSONRecords($(GetRowSelector([id])))[0]
+	var fieldIndex = 0
+	for (let [oldField, oldValue] of Object.entries(originalRecord)) {
+		if (oldValue !== newRecord[oldField]) $('#' + id + ' > td:eq(' + fieldIndex + ')').text(oldValue)
+		fieldIndex++
+	}
+	$(GetRowSelector([id]) + ' .toggle').prop('checked', false).change()
+}
+
+function DeleteRecordsFromTable(idArray) { $(GetRowSelector(idArray)).remove() }
+
+// ------------------------------------------------------------------------------------------------//
+// ------------------------------------------- HELPERS --------------------------------------------//
+// ------------------------------------------------------------------------------------------------//
+function Editable(element) { if ($(element).hasClass('read-only')) { return false } else { return true } }
+
+function GetRowSelector(idList) {
+	var rowSelector = '.db-table > tbody > '
+	for (var eachID = 0; eachID < idList.length; eachID++) { rowSelector += 'tr#' + idList[eachID] + ',' }
+	return rowSelector.replace(/,$/, '')
+}
+
+function ThrowJSONError(json) { alert(JSON.stringify(json)) }
+
+function FindRecordInTrackedRecords(id) {
+	var index = null
+	for (var eachRecord = 0; eachRecord < trackedRecords.length; eachRecord++) {
+		if (trackedRecords[eachRecord].ID === id) { index = eachRecord; break }
+	}
+	return index
+}
+
+function CreateIDListOfSelectedContext(context) {
+	var idList = ''
+	if ($(context).closest('tr').parent()[0].tagName === 'TBODY') { idList = $(context).closest('tr').attr('id') }
+	else if ($(context).closest('tr').parent()[0].tagName === 'THEAD') {
+		$('.db-table tbody tr.checked').each(function(index, element) {
+			idList += $(this).attr('id') + ','
+		})
+		idList = idList.replace(/,$/, '')
+	}
+	return idList
+}
+
+function UpdateOpStatus(status) {
+	if (status) { queued++ } else { queued-- }
+	$('#queue-count > span').text(queued)
+	if ((queued > 0) && $('#queue-count').hasClass('display-none')) {
+		$('#queue-count').removeClass('display-none')
+	}
+	else if (!queued && !($('#queue-count').hasClass('display-none'))) {
+		$('#queue-count').addClass('display-none')
+	}
+}
+
+function ProcessIDList(errorList, idList) {
+	var successList = []
+	for (var eachID = 0; eachID < idList.length; eachID++) {
+		var match = false
+		for (var eachError = 0; eachError < errorList.length; eachError++) {
+			if (idList[eachID] === errorList[eachError]) { match = true; break }
+		}
+		if (!match) { successList.push(idList[eachID]); }
+	}
+	return successList
+}
+
+function RemoveTrackedRecords(removeList, TestCondition, Callback = null) {
+	var removedList = []
+	for (var outerIndex = 0; outerIndex < removeList.length; outerIndex++) {
+		for (var innerIndex = trackedRecords.length - 1; innerIndex >= 0; innerIndex--) {
+			if (TestCondition(removeList[outerIndex], trackedRecords[innerIndex])) {
+				if (Callback) Callback(removeList[outerIndex], trackedRecords[innerIndex])
+				trackedRecords.splice(innerIndex, 1)
+				removedList.push(removeList[outerIndex])
+			}
+		}
+	}
+	return removedList
+}
+
+function GetOriginalRecordValues(idList) {
+	var changedRecords = []
+	for (var eachID = 0; eachID < idList.length; eachID++) {
+		var fieldChanges = {}
+		var record = HTMLRowsToJSONRecords($(GetRowSelector([idList[eachID]])))[0]
+		var compareRecord = trackedRecords[FindRecordInTrackedRecords(idList[eachID])]
+		for (var eachProperty in record) {
+			if (record[eachProperty] !== compareRecord[eachProperty]) {
+				fieldChanges[eachProperty] = parseInt(compareRecord[eachProperty]) || compareRecord[eachProperty]
+			}
+		}
+		changedRecords.push({'id':idList[eachID], 'fields':fieldChanges})
+	}
+	return changedRecords
+}
+
+function ToggleRowIcons(idList) {
+	for (var eachID = 0; eachID < idList.length; eachID++) {
+		if (FindRecordInTrackedRecords(eachID) !== null) {
+			// Show icons
+		} else {
+			// Hide icons
+		}
+	}
 }
 
 function UpdateCheckedRows(checkedContext) {
@@ -149,113 +280,6 @@ function UpdateCheckedRows(checkedContext) {
 	else {
 		$('.db-table > thead > tr .checkbox-icon').removeAttr('style')
 		$('.db-table > thead > tr .toggle').prop('checked', false)
-	}
-}
-
-function LeaveCellRemoveCondition(id, originalRecord) {
-	var newRecord = HTMLRowsToJSONRecords($(GetRowSelector([id])))[0]
-	for(eachProperty in originalRecord) {
-		if (originalRecord[eachProperty] !== newRecord[eachProperty]) return false
-	}
-	return true
-}
-
-function OpRemoveCondition(id, originalRecord) {
-	return id === originalRecord.ID
-}
-
-function UndoRowChangeByID(id, originalRecord) {
-	$(GetRowSelector([id])).replaceWith(JSONRecordsToHTMLRows([originalRecord]))
-	$(GetRowSelector([id]) + ' .toggle').change()
-}
-
-function ApplyRowChangeByID(id, originalRecord) {
-	// Update checkboxes
-}
-
-function DeleteRecordsFromTable(idArray) { $(GetRowSelector(idArray)).remove() }
-
-// ------------------------------------------------------------------------------------------------//
-// ------------------------------------------- HELPERS --------------------------------------------//
-// ------------------------------------------------------------------------------------------------//
-function Editable(element) {
-	if ($(element).hasClass('read-only')) return false
-	return true
-}
-
-function GetRowSelector(idList) {
-	var rowSelector = '.db-table > tbody > '
-	for(var eachID = 0; eachID < idList.length; eachID++) {
-		rowSelector += 'tr#' + idList[eachID] + ','
-	}
-	return rowSelector.replace(/,$/, '')
-}
-
-function ThrowJSONError(json) {
-	alert(JSON.stringify(json))
-}
-
-function FindRecordInTrackedRecordsByID(id) {
-	var index = null
-	for (var eachRecord = 0; eachRecord < trackedRecords.length; eachRecord++) {
-		if (trackedRecords[eachRecord].ID === id) { index = eachRecord; break }
-	}
-	return index
-}
-
-function CreateIDListOfSelectedContext(context) {
-	var idList = ''
-	if ($(context).closest('tr').parent()[0].tagName === 'TBODY') {
-		idList = $(context).closest('tr').attr('id')
-	} else if ($(context).closest('tr').parent()[0].tagName === 'THEAD') {
-		$('.db-table tbody tr.checked').each(function(index, element) {
-			idList += $(this).attr('id') + ','
-		})
-		idList = idList.replace(/,$/, '')
-	}
-	return idList
-}
-
-function ToggleRowCheckByChangeState(id) {
-	var state = false
-	if(FindRecordInTrackedRecordsByID(id) !== null) { state = true }
-	$(GetRowSelector([id]) + ' .toggle').prop('checked', state).change()
-}
-
-function ProcessIDList(errorList, idList) {
-	var successList = []
-	for(var eachID = 0; eachID < idList.length; eachID++) {
-		var match = false
-		for (var eachError = 0; eachError < errorList.length; eachError++) {
-			if (idList[eachID] === errorList[eachError]) { match = true; break }
-		}
-		if (!match) { successList.push(idList[eachID]); }
-	}
-	return successList
-}
-
-function AddTrackedRecords(id) {
-	if (FindRecordInTrackedRecordsByID(id) === null) trackedRecords = trackedRecords.concat(HTMLRowsToJSONRecords($(GetRowSelector([id]))))
-}
-
-function RemoveTrackedRecords(removeList, TestCondition, Callback = null) {
-	for(var outerIndex = 0; outerIndex < removeList.length; outerIndex++) {
-		for (var innerIndex = trackedRecords.length - 1; innerIndex >= 0; innerIndex--) {
-			if (TestCondition(removeList[outerIndex], trackedRecords[innerIndex])) {
-				if (Callback) Callback(removeList[outerIndex], trackedRecords[innerIndex])
-				trackedRecords.splice(innerIndex, 1)
-			}
-		}
-	}
-}
-
-function ToggleRowIcons(idList) {
-	for(var eachID = 0; eachID < idList.length; eachID++) {
-		if (FindRecordInTrackedRecordsByID(eachID) !== null) {
-			// Show icons
-		} else {
-			// Hide icons
-		}
 	}
 }
 
@@ -283,7 +307,6 @@ function JSONRecordsToHTMLRows(jsonRecords) {
 		<input type="checkbox" id="bulk-apply-' + id + '" class="display-none toggle">\
 		<label for="bulk-apply-' + id + '" class="checkbox-icon line-icon"></label>\
 		<img src="/icons/delete.svg" class="delete line-icon" title="Delete this record from the database">\
-		<img src="/icons/apply.svg" class="apply line-icon" title="Apply all changes to this record to database">\
 		<img src="/icons/undo.svg" class="undo line-icon" title="Undo all changes to this record">\
 		</td>'
 		Object.entries(jsonRecords[eachRecord]).forEach( ([key, value]) => {
@@ -301,7 +324,6 @@ function WriteTable(jsonRecords) {
 	<img src="/icons/refresh.svg" class="refresh line-icon" title="Refresh this table from the database">\
 	<label for="bulk-select-all" class="checkbox-icon line-icon" title="Select all records in table"></label>\
 	<img src="/icons/delete-all.svg" class="delete-all line-icon" title="Delete all selected rows from database">\
-	<img src="/icons/apply-all.svg" class="apply-all line-icon" title="Apply all changes to selected records to database">\
 	<img src="/icons/undo-all.svg" class="undo-all line-icon" title="Undo all changes to selected records">\
 	</th>'
 	
