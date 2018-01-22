@@ -39,18 +39,24 @@ function Update(db, table, recordToUpdate, response) {
 	})
 }
 
-function Delete(db, table, idList, response) {
-	var sql = 'DELETE FROM ' + table + ' WHERE ID IN (' + idList.replace(/[0-9]+/g, '?') + ');'
+function Delete(db, table, idArray, response) {
+	var idParamList = ''
+	idArray = JSON.parse(idArray)
+	for (var eachID = 0; eachID < idArray.length; eachID++) {idParamList += '?,'}
+	idParamList = idParamList.replace(/,$/, '')
+	var sql = 'DELETE FROM ' + table + ' WHERE ID IN (' + idParamList + ');'
 
-	db.run(sql, idList.split(','), function(error) {
+	db.run(sql, idArray, function(error) {
 		if (error) { db.close(); ReturnJSON(error, response) }
-		else { GetRecords(db, table, response, 'WHERE ID IN ($id)', idList, ['ID']) }
+		else { GetRecords(db, table, response, 'WHERE ID IN (' + idParamList + ')', idArray, []) }
 	})
 }
 
 function GetRecords(db, table, response, filterClause = '', params = [], fields = '*') {
 	var selectFields = 'ID,'
-	if (fields !== '*') { for (var eachField = 0; eachField < fields.length; eachField++) { selectFields += fields[eachField] + ',' }; selectFields = selectFields.replace(/,$/, '') }
+	if (fields !== '*') {
+		for (var eachField = 0; eachField < fields.length; eachField++) { selectFields += fields[eachField] + ',' }
+		selectFields = selectFields.replace(/,$/, '') }
 	else { selectFields = fields }
 	var sql = 'SELECT ' + selectFields + ' FROM ' + table + ' ' + filterClause + ';'
 

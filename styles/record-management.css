@@ -19,10 +19,11 @@ main { padding: 3vh 3vw; }
 
 .db-table td {
 	text-align: center;
-	padding: 4px 6px;
 	cursor: default;
 	white-space: nowrap;
+	height: 32px;
 }
+.td-padding	{ padding: 4px 6px; }
 
 .line-icon {
 	display: inline-block;
@@ -40,6 +41,14 @@ main { padding: 3vh 3vw; }
 }
 .toggle:checked ~ .checkbox-icon {
 	background-image: url('/icons/checkbox-checked.svg')
+}
+
+input {
+	box-sizing: border-box;
+	font: inherit;
+	width: 100%;
+	height: 100%;
+	text-align: center;
 }
 
 .create {

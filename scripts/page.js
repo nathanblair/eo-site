@@ -5,9 +5,8 @@ var trackedRecords = []
 var queued = 0
 var dragging = false
 
-// Still working on testing update/rollback operations
-// Then need to decide on when to show and hide rollback icon
-// Then can start implementing keyboard shortcuts
+// Continue testing update/rollback operations
+// Implement keyboard shortcuts
 
 // ------------------------------------------------------------------------------------------------//
 // ------------------------------------------ PAGE INFO -------------------------------------------//
@@ -38,35 +37,10 @@ $.get('main', function( data ) {
 $('body').on('touchmove', '.db-table > tbody > tr > td', () => dragging = true)
 
 // --------------------------------------- Edit table cell ----------------------------------------//
-$('body').on('dblclick touchend', '.db-table > tbody > tr > td', (eventArgs) => {
-	if (dragging || !Editable(eventArgs.currentTarget)) return
-	var id = $(eventArgs.currentTarget).closest('tr').attr('id')
+$('body').on('dblclick touchend', '.db-table > tbody > tr > td', (eventArgs) => { HandleCellEnter(eventArgs.currentTarget) })
 
-	if (FindRecordInTrackedRecords(id) === null) trackedRecords = trackedRecords.concat(HTMLRowsToJSONRecords($(GetRowSelector([id]))))
-	$(eventArgs.currentTarget).attr('contenteditable', 'true').focus()
-	dragging = false
-})
-
-// ------------------------------------ Leave table cell edit -------------------------------------//
-$('body').on('focusout', '.db-table > tbody > tr > td', (eventArgs) => {
-	UpdateOpStatus(true)
-	var id = $(eventArgs.currentTarget).closest('tr').attr('id')
-	if (RemoveTrackedRecords([id], LeaveCellRemoveCondition).length >= 1) {
-		$(eventArgs.currentTarget).removeAttr('contenteditable')
-		UpdateOpStatus(false)
-		return;
-	}
-	var passedJSON = {'id':id, fields:{
-		[$('.db-table > thead th:eq(' + $(eventArgs.currentTarget).index() + ')').text()]:
-			parseInt($(eventArgs.currentTarget).text()) || $(eventArgs.currentTarget).text()
-	}}
-	$.post('update', JSON.stringify(passedJSON), (updates) => {
-		if (updates["errno"] || updates.length > 1) { ThrowJSONError(updates) }
-		else { $(eventArgs.currentTarget).text(Object.values(updates[0])[1]) }
-		$(eventArgs.currentTarget).removeAttr('contenteditable')
-		UpdateOpStatus(false)
-	}, 'json')
-})
+// -------------------------------------- Leave table cell ----------------------------------------//
+$('body').on('blur', '.db-table > tbody > tr > td', (eventArgs) => { HandleCellLeave(eventArgs.currentTarget) })
 
 // ------------------------------------- Checked state of row changed -----------------------------//
 $('body').on('change', '.db-table > tbody > tr .toggle', (checkedContext) => { UpdateCheckedRows(checkedContext) })
@@ -78,11 +52,22 @@ $('body').on('change', '.db-table > thead > tr .toggle', (eventArgs) => {
 	}
 })
 
+// ------------------------------------- Refresh icon clicked -------------------------------------//
+$('body').on('click', '.refresh', () => { Refresh() })
+
+// ------------------------------------- Create icon clicked --------------------------------------//
+$('body').on('click', '.create', () => { Create() })
+
+// ------------------------------------- Delete icon clicked -------------------------------------//
+$('body').on('click', '.delete, .delete-all', (eventArgs) => { Delete(eventArgs) })
+
+// ------------------------------------- Undo icon clicked ---------------------------------------//
+$('body').on('click', '.undo, .undo-all', (eventArgs) => { Undo(eventArgs) })
+
 // ------------------------------------------------------------------------------------------------//
 // ------------------------------------------ OP ACTIONS ------------------------------------------//
 // ------------------------------------------------------------------------------------------------//
-// ------------------------------------- Refresh icon clicked -------------------------------------//
-$('body').on('click', '.refresh', (eventArgs) => {
+function Refresh() {
 	UpdateOpStatus(true)
 	$('.db-table tbody tr').remove()
 	$.getJSON('getRecords', function(jsonRecords) {
@@ -91,40 +76,24 @@ $('body').on('click', '.refresh', (eventArgs) => {
 		trackedRecords = []
 		UpdateOpStatus(false)
 	})
-})
+}
 
-// ------------------------------------- Undo icon clicked ---------------------------------------//
-$('body').on('click', '.undo, .undo-all', (eventArgs) => {
-	var idList = CreateIDListOfSelectedContext(eventArgs.target)
-	var idArray = idList.split(',')
-	var undoRecords = GetOriginalRecordValues(idArray)
-	if (undoRecords.length === 0) { alert("There are no changes to roll back for a selected record!"); return }
-	else if (undoRecords.length !== idArray.length) { alert("There were " + (idArray.length - undoRecords.length) + " record(s) selected that will not be undone\nThese record(s) do not have rollback entries") }
-	if (confirm('Are you sure you want to undo changes to these ' + undoRecords.length + ' record(s)?')) {
-		UpdateOpStatus(true, undoRecords.length)
-		PostUndoUpdate(undoRecords)
-	}
-})
-
-// ------------------------------------- Create icon clicked --------------------------------------//
-$('body').on('click', '.create', (eventArgs) => {
+function Create() {
 	UpdateOpStatus(true)
 	$.getJSON('create', function( jsonRecords ) {
 		if (jsonRecords["errno"]) { ThrowJSONError(jsonRecords) }
 		else { $('.db-table > tbody > tr:last-child').after(JSONRecordsToHTMLRows(jsonRecords))}
 		UpdateOpStatus(false)
 	})
-})
+}
 
-// ------------------------------------- Delete icon clicked -------------------------------------//
-$('body').on('click', '.delete, .delete-all', (eventArgs) => {
-	var idList = CreateIDListOfSelectedContext(eventArgs.target)
-	if (idList === '') return
-	var idArray = idList.split(',')
+function Delete(eventArgs) {
+	var idArray = GetIDsOfSelectedContext(eventArgs.target)
+	if (idArray.length === 0) return
 	
 	if (confirm('Are you sure you want to delete these ' + idArray.length + ' record(s)?')) {
 		UpdateOpStatus(true)
-		$.post('delete', idList, function(returnedList) {
+		$.post('delete', JSON.stringify(idArray), function(returnedList) {
 			if (returnedList["errno"]) { ThrowJSONError(returnedList) }
 			else {
 				var successList = ProcessIDList(returnedList, idArray)
@@ -133,9 +102,64 @@ $('body').on('click', '.delete, .delete-all', (eventArgs) => {
 				RemoveTrackedRecords(successList, OpRemoveCondition)
 			}
 			UpdateOpStatus(false)
-		}, 'text')
+		}, 'json')
 	}
-})
+}
+
+function Undo(eventArgs) {
+	var idArray = GetIDsOfSelectedContext(eventArgs.target)
+	var undoQueue = GetOriginalRecordValues(idArray)
+	if (undoQueue.length === 0) { alert("There are no changes to roll back for a selected record!"); return }
+	else if (undoQueue.length !== idArray.length) { alert("There were " + (idArray.length - undoQueue.length) + " record(s) selected that will not be undone\nThese record(s) do not have rollback entries") }
+	if (confirm('Are you sure you want to undo changes to these ' + undoQueue.length + ' record(s)?')) {
+		UpdateOpStatus(true, undoQueue.length)
+		PostUndoUpdate(undoQueue)
+	}
+}
+
+// ------------------------------------- Cell is entered ---------------------------------------//
+function HandleCellEnter(cell) {
+	if (dragging || !Editable(cell)) { dragging = false; return }
+	var id = $(cell).closest('tr').attr('id')
+
+	if (FindRecordInTrackedRecords(id) === null) trackedRecords = trackedRecords.concat(HTMLRowsToJSONRecords($(GetRowSelector([id]))))
+	$(cell).removeClass('td-padding').html(SmartInput(cell)).children('.smart-input').focus().select()
+	dragging = false
+}
+
+// ------------------------------------- Cell is exited ---------------------------------------//
+function HandleCellLeave(cell) {
+	var smartInput = $(cell).children('.smart-input')
+	if (!smartInput[0].checkValidity()) {
+		smartInput.css('outline', 'solid red 1px').focus().select()
+		return
+	}
+
+	var value = null
+	if (smartInput.attr('type') === 'checkbox') { value += smartInput.prop('checked') }
+	else { value = smartInput.val(); if ((!isNaN(value)) && value !== '') value = Number(value) }
+	$(cell).text(value).addClass('td-padding').children('.smart-input').remove()
+	
+	var id = $(cell).closest('tr').attr('id')
+	if (RemoveTrackedRecords([id], LeaveCellRemoveCondition).length >= 1) {
+		if (!$(GetRowSelector([id]) + ' .undo').hasClass('display-none-important')) {
+			$(GetRowSelector([id]) + ' .undo').addClass('display-none-important')
+		}
+		return
+	}
+	var passedJSON = {'id':id, fields:{ [$('.db-table > thead th:eq(' + $(cell).index() + ')').text()]: value }}
+	UpdateOpStatus(true)
+	$.post('update', JSON.stringify(passedJSON), (updates) => {
+		if (updates["errno"] || updates.length > 1) {
+			$(cell).text(trackedRecords[FindRecordInTrackedRecords([id])][$('.db-table > thead > tr > th:eq(' + $(cell).index() + ')').text()])
+			ThrowJSONError(updates)
+		} else {
+			$(cell).text(Object.values(updates[0])[1])
+			$(GetRowSelector([id]) + ' .undo').removeClass('display-none-important')
+		}
+		UpdateOpStatus(false)
+	}, 'json')
+}
 
 // ------------------------------------------------------------------------------------------------//
 // ------------------------------------------- CALLBACKS ------------------------------------------//
@@ -148,17 +172,16 @@ function LeaveCellRemoveCondition(id, originalRecord) {
 
 function OpRemoveCondition(id, originalRecord) { return id === parseInt(originalRecord.ID) }
 
-function PostUndoUpdate(undoRecords) {
-	if (undoRecords.length === 0) return;
-	$.post('update', JSON.stringify(undoRecords[undoRecords.length - 1]), (returnedRecords) => {
+function PostUndoUpdate(undoQueue) {
+	if (undoQueue.length === 0) return;
+	$.post('update', JSON.stringify(undoQueue[undoQueue.length - 1]), (returnedRecords) => {
 		if (returnedRecords["errno"]) { ThrowJSONError(returnedRecords) }
-		RemoveTrackedRecords([returnedRecords[0].ID], OpRemoveCondition, UndoRowChange)
-		undoRecords.pop()
+		else { RemoveTrackedRecords([returnedRecords[0].ID], OpRemoveCondition, UndoRowChange) }
+		undoQueue.pop()
 		UpdateOpStatus(false)
-		PostUndoUpdate(undoRecords)
+		PostUndoUpdate(undoQueue)
 	}, 'json')
 }
-
 
 function UndoRowChange(id, originalRecord) {
 	var newRecord = HTMLRowsToJSONRecords($(GetRowSelector([id])))[0]
@@ -168,6 +191,9 @@ function UndoRowChange(id, originalRecord) {
 		fieldIndex++
 	}
 	$(GetRowSelector([id]) + ' .toggle').prop('checked', false).change()
+	if (!$(GetRowSelector([id]) + ' .undo').hasClass('display-none-important')) {
+		$(GetRowSelector([id]) + ' .undo').addClass('display-none-important')
+	}
 }
 
 function DeleteRecordsFromTable(idArray) { $(GetRowSelector(idArray)).remove() }
@@ -177,9 +203,9 @@ function DeleteRecordsFromTable(idArray) { $(GetRowSelector(idArray)).remove() }
 // ------------------------------------------------------------------------------------------------//
 function Editable(element) { if ($(element).hasClass('read-only')) { return false } else { return true } }
 
-function GetRowSelector(idList) {
+function GetRowSelector(idArray) {
 	var rowSelector = '.db-table > tbody > '
-	for (var eachID = 0; eachID < idList.length; eachID++) { rowSelector += 'tr#' + idList[eachID] + ',' }
+	for (var eachID = 0; eachID < idArray.length; eachID++) { rowSelector += 'tr#' + idArray[eachID] + ',' }
 	return rowSelector.replace(/,$/, '')
 }
 
@@ -193,14 +219,13 @@ function FindRecordInTrackedRecords(id) {
 	return index
 }
 
-function CreateIDListOfSelectedContext(context) {
-	var idList = ''
-	if ($(context).closest('tr').parent()[0].tagName === 'TBODY') { idList = $(context).closest('tr').attr('id') }
+function GetIDsOfSelectedContext(context) {
+	var idArray = []
+	if ($(context).closest('tr').parent()[0].tagName === 'TBODY') { idArray.push($(context).closest('tr').attr('id')) }
 	else if ($(context).closest('tr').parent()[0].tagName === 'THEAD') {
-		$('.db-table tbody tr.checked').each(function(index, element) { idList += $(this).attr('id') + ',' })
-		idList = idList.replace(/,$/, '')
+		$('.db-table tbody tr.checked').each(function(index, element) { idArray.push($(this).attr('id')) })
 	}
-	return idList
+	return idArray
 }
 
 function UpdateOpStatus(status, increment = null) {
@@ -210,14 +235,14 @@ function UpdateOpStatus(status, increment = null) {
 	else if (!queued && !($('#queue-count').hasClass('display-none'))) { $('#queue-count').addClass('display-none') }
 }
 
-function ProcessIDList(errorList, idList) {
+function ProcessIDList(errorList, idArray) {
 	var successList = []
-	for (var eachID = 0; eachID < idList.length; eachID++) {
+	for (var eachID = 0; eachID < idArray.length; eachID++) {
 		var match = false
 		for (var eachError = 0; eachError < errorList.length; eachError++) {
-			if (idList[eachID] === errorList[eachError]) { match = true; break }
+			if (idArray[eachID] === errorList[eachError]) { match = true; break }
 		}
-		if (!match) successList.push(idList[eachID])
+		if (!match) successList.push(idArray[eachID])
 	}
 	return successList
 }
@@ -236,20 +261,20 @@ function RemoveTrackedRecords(removeList, TestCondition, Callback = null) {
 	return removedList
 }
 
-function GetOriginalRecordValues(idList) {
+function GetOriginalRecordValues(idArray) {
 	var changedRecords = []
-	for (var eachID = 0; eachID < idList.length; eachID++) {
-		let trackedIndex = FindRecordInTrackedRecords(idList[eachID])
+	for (var eachID = 0; eachID < idArray.length; eachID++) {
+		let trackedIndex = FindRecordInTrackedRecords(idArray[eachID])
 		if (trackedIndex === null) continue
 		var fieldChanges = {}
-		var record = HTMLRowsToJSONRecords($(GetRowSelector([idList[eachID]])))[0]
+		var record = HTMLRowsToJSONRecords($(GetRowSelector([idArray[eachID]])))[0]
 		var compareRecord = trackedRecords[trackedIndex]
 		for (var eachProperty in record) {
 			if (record[eachProperty] !== compareRecord[eachProperty]) {
 				fieldChanges[eachProperty] = parseInt(compareRecord[eachProperty]) || compareRecord[eachProperty]
 			}
 		}
-		changedRecords.push({'id':idList[eachID], 'fields':fieldChanges})
+		changedRecords.push({'id':idArray[eachID], 'fields':fieldChanges})
 	}
 	return changedRecords
 }
@@ -276,14 +301,15 @@ function UpdateCheckedRows(checkedContext) {
 
 function HTMLRowsToJSONRecords(htmlRows) {
 	var jsonRecords = []
+	var numberOfFields = $('.db-table > thead > tr > th').length
 
-	for (var eachRow = 0; eachRow < htmlRows.length; eachRow++) {
-		jsonRecords[eachRow] = {}
-		jsonRecords[eachRow].ID = $(htmlRows[eachRow]).attr('id')
-		var tdElements = $(htmlRows[eachRow]).children('td')
-		for (var eachData = 1; eachData < tdElements.length; eachData++) {
-			var header = $('.db-table th:eq(' + eachData + ')').text()
-			jsonRecords[eachRow][header] = tdElements[eachData].textContent
+	for (var eachRecord = 0; eachRecord < htmlRows.length; eachRecord++) {
+		jsonRecords[eachRecord] = {}
+		jsonRecords[eachRecord].ID = $(htmlRows[eachRecord]).attr('id')
+		for (var eachData = 1; eachData < numberOfFields; eachData++) {
+			let value = $('.db-table > tbody > tr:eq(' + $(htmlRows[eachRecord]).index() + ') > td:eq(' + eachData + ')').text()
+			if ((!isNaN(value)) && value !== '') value = Number(value)
+			jsonRecords[eachRecord][$('.db-table > thead > tr > th:eq(' + eachData + ')').text()] = value
 		}
 	}
 	return jsonRecords
@@ -298,10 +324,10 @@ function JSONRecordsToHTMLRows(jsonRecords) {
 		<input type="checkbox" id="bulk-apply-' + id + '" class="display-none toggle">\
 		<label for="bulk-apply-' + id + '" class="checkbox-icon line-icon"></label>\
 		<img src="/icons/delete.svg" class="delete line-icon" title="Delete this record from the database">\
-		<img src="/icons/undo.svg" class="undo line-icon" title="Undo all changes to this record">\
+		<img src="/icons/undo.svg" class="undo display-none-important line-icon" title="Undo all changes to this record">\
 		</td>'
 		Object.entries(jsonRecords[eachRecord]).forEach( ([key, value]) => {
-			if (key !== 'ID') html += '<td>' + value + '</td>'
+			if (key !== 'ID') html += '<td class="td-padding">' + value + '</td>'
 		})
 		html += '</tr>'
 	}
@@ -325,3 +351,33 @@ function WriteTable(jsonRecords) {
 	
 	return html
 }
+
+function SmartInput(cell) {
+	var fieldName = $('.db-table > thead > tr > th:eq(' + $(cell).index() + ')').text()
+	var type = 'text'
+	var min = ''
+	var max = ''
+	var checked = ''
+	if (fieldName.match(/(q(uanti)?ty|num(ber)?|c(ou)?nt)/i)) {
+		type = 'number'
+		min = 0
+	} else if (fieldName.match(/ed$|fl(a)?g/i)) {
+		type = 'checkbox'
+		if (parseInt($(cell).text())) checked = 'checked'
+	}
+
+	return '<input type="' + type + '" min="' + min + '" max="' + max + '" ' + checked + ' value="' + $(cell).text() + '" class="smart-input">'
+}
+
+// ------------------------------------------------------------------------------------------------//
+// ----------------------------------- KEYBOARD SHORTCUTS -----------------------------------------//
+// ------------------------------------------------------------------------------------------------//
+// TODO
+// Arrow key navigation within cells accepts edits to the cell and moves to corresponding next cell
+// Tab key accepts edits to the cell and moves to the next editable cell
+// Shift+Tab key accepts edits to the cell and moves to the previous editable cell
+
+// Escape key cancels any edits to the cell and exits
+
+// Enter key accepts edits to cell and exits
+
