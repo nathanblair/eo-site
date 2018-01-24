@@ -5,6 +5,9 @@ const fslib = require('fs')
 const pathlib = require('path')
 var dblib = require('./database')
 
+// Get run-level of program; execute server on port 80 if root permissions are granted;
+// Otherwise, execute server on port 8080
+
 function GetDBPath(host) {
 	var dbPath = pathlib.normalize(pathlib.dirname(require.main.filename)) + MapHostToPath(host)
 	var dbFile = fslib.readdirSync(dbPath).filter(function(file) {
@@ -48,12 +51,53 @@ function Delete(db, table, idArray, response) {
 
 	db.run(sql, idArray, function(error) {
 		if (error) { db.close(); ReturnJSON(error, response) }
-		else { GetRecords(db, table, response, 'WHERE ID IN (' + idParamList + ')', idArray, []) }
+		else { GetRecords(db, table, response, 'WHERE ID IN (' + idParamList + ')', idArray, ['ID']) }
+	})
+}
+
+function GetFields(db, table, response) {
+	var sql = 'SELECT sql FROM sqlite_master WHERE type="table" AND tbl_name="' + table + '"'
+	
+	db.all(sql, function(error, rows) {
+		db.close(); if (error) { ReturnJSON(error, response) }
+		else {
+			var fields = {}
+			var fieldNames = []
+			var fieldTypes = []
+			var fieldCriteria = {}
+			var readOnly = []
+			var regexSql = rows[0].sql
+
+			regexSql.match(/`\w+`/g).forEach((element) => { fieldNames.push(element.replace(/`/g, '')) })
+			regexSql.match(/`\s\w+/g).forEach((element) => { fieldTypes.push(element.replace(/`\s/g, '')) })
+			var criteriaFound = /CHECK\(\w+ IN \(.+\,?\)\)/g.exec(regexSql)
+			if (criteriaFound) { criteriaFound.forEach((element) => {
+				let matchArray = /CHECK\((\w+) IN \((.+)\,?\)\)/.exec(element)
+				let field = matchArray[1]
+				let range = matchArray[2].split(',')
+				fieldCriteria[field] = range
+			})}
+			var readOnlyFound = /FOREIGN KEY\(`\w+`\)/g.exec(regexSql)
+			if (readOnlyFound) { readOnlyFound.forEach((element) => { readOnly.push(/FOREIGN KEY\((`\w+)\)/g.exec(element)[1]) }) }
+			for (let eachField = 0; eachField < fieldNames.length; eachField++) {
+				fields[fieldNames[eachField]] = {}
+				fields[fieldNames[eachField]].type = fieldTypes[eachField]
+				if (fieldNames[eachField] === 'ID') { fields[fieldNames[eachField]].readOnly = true; continue }
+				else { fields[fieldNames[eachField]].readOnly = false }
+				for (let eachReadOnly = 0; eachReadOnly < readOnly.length; eachReadOnly++) {
+					if (fieldNames[eachField] === readOnly[eachReadOnly]) {
+						fields[fieldNames[eachField]].readOnly = true
+						break
+					}
+				}
+			}
+			ReturnJSON(fields, response)
+		}
 	})
 }
 
 function GetRecords(db, table, response, filterClause = '', params = [], fields = '*') {
-	var selectFields = 'ID,'
+	var selectFields = ''
 	if (fields !== '*') {
 		for (var eachField = 0; eachField < fields.length; eachField++) { selectFields += fields[eachField] + ',' }
 		selectFields = selectFields.replace(/,$/, '') }
@@ -133,6 +177,7 @@ function HandleDatabaseRequest(host, urlPath, response, action = 'getRecords', u
 	if (action === 'create') { Create(dblib.db, table, response) } 
 	else if (action === 'update') { Update(dblib.db, table, records, response) }
 	else if (action === 'delete') { Delete(dblib.db, table, records, response) }
+	else if (action === 'getFields') { GetFields(dblib.db, table, response) }
 	else if (action === 'getRecords') { GetRecords(dblib.db, table, response, urlQuery) }
 }
 
