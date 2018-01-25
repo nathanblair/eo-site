@@ -6,7 +6,6 @@ var fieldSchema = {}
 var queued = 0
 var dragging = false
 
-// Get IDS of selected context is not taking into account the data type that the ID field stores as
 // Continue testing update/rollback operations
 // Implement keyboard shortcuts
 
@@ -39,7 +38,7 @@ $.get('main', data => {
 $('body').on('touchmove', '.db-table > tbody > tr > td', () => dragging = true)
 
 // --------------------------------------- Edit table cell ----------------------------------------//
-$('body').on('dblclick touchend', '.db-table > tbody > tr > td', (eventArgs) => { HandleCellEnter(eventArgs.currentTarget) })
+$('body').on('dblclick touchend', '.db-table > tbody > tr > td:not(.read-only)', (eventArgs) => { HandleCellEnter(eventArgs.currentTarget) })
 
 // -------------------------------------- Leave table cell ----------------------------------------//
 $('body').on('blur', '.db-table > tbody > tr > td', (eventArgs) => { HandleCellLeave(eventArgs.currentTarget) })
@@ -89,8 +88,8 @@ function Undo(context) {
 // ------------------------------------------------------------------------------------------------//
 // -------------------------------------- Cell is entered -----------------------------------------//
 function HandleCellEnter(cell) {
-	if (!dragging || Editable(cell)) {
-		var id = $(cell).closest('tr').attr('id')
+	if (!dragging && Editable(cell)) {
+		var id = GetCellID(cell)
 		if (trackedRecords.filter(record => record.ID === id).length === 0) trackedRecords = trackedRecords.concat(HTMLRowsToJSONRecords($(GetRowSelector([id]))))
 		$(cell).removeClass('td-padding').html(SmartInput(cell)).children('.smart-input').focus().select()
 	}
@@ -102,13 +101,10 @@ function HandleCellLeave(cell) {
 	var smartInput = $(cell).children('.smart-input')
 	if (!smartInput[0].checkValidity()) { smartInput.css('outline', 'solid red 1px').focus().select(); return }
 
-	var value = null
-	var fieldName = GetFieldName($(cell).index())
-	if (IsBoolField(fieldName)) { value += smartInput.prop('checked') } else if (IsIntField(fieldName) || IsNumberField(fieldName)) { value = Number(value) } else { smartInput.val() }
-
+	var value = GetCellValue($(cell).index(), smartInput[0])
 	$(cell).text(value).addClass('td-padding').children('.smart-input').remove()
 	
-	var id = $(cell).closest('tr').attr('id')
+	var id = GetCellID(cell)
 	if (RemoveTrackedRecords([id], LeaveCellRemoveCondition).length >= 1) {
 		if (!$(GetRowSelector([id]) + ' .undo').hasClass('display-none-important')) { $(GetRowSelector([id]) + ' .undo').addClass('display-none-important') }
 		return
@@ -146,7 +142,7 @@ function CreateCallback(jsonRecords) {
 
 function UpdateCallback(updates, cell) {
 	$(cell).text(Object.values(updates[0])[1]);
-	$(GetRowSelector([$(cell).closest('tr').attr('id')]) + ' .undo').removeClass('display-none-important')
+	$(GetRowSelector([GetCellID(cell)]) + ' .undo').removeClass('display-none-important')
 }
 
 function ResetCellCallback(cell) { $(cell).text(trackedRecords.filter(record => record.ID === id)[GetFieldName($(cell).index())]) }
@@ -164,10 +160,8 @@ function UndoCallback(undoQueue) {
 
 function UndoRowChange(id, originalRecord) {
 	var newRecord = HTMLRowsToJSONRecords($(GetRowSelector([id])))[0]
-	var fieldIndex = 0
 	for (let [oldField, oldValue] of Object.entries(originalRecord)) {
-		if (oldValue !== newRecord[oldField]) $('#' + id + ' > td:eq(' + fieldIndex + ')').text(oldValue)
-		fieldIndex++
+		if (oldValue !== newRecord[oldField]) $('#' + id + ' > td:eq(' + GetFieldIndex(oldField) + ')').text(oldValue)
 	}
 	$(GetRowSelector([id]) + ' .toggle').prop('checked', false).change()
 	if (!$(GetRowSelector([id]) + ' .undo').hasClass('display-none-important')) { $(GetRowSelector([id]) + ' .undo').addClass('display-none-important') }
@@ -198,7 +192,7 @@ function FindRecordInTrackedRecords(id) { return trackedRecords.filter(record =>
 function GetIDsOfSelectedContext(context) {
 	var idArray = []
 	switch ($(context).closest('tr').parent()[0].tagName) {
-		case 'TBODY': idArray.push($(context).closest('tr').attr('id')); break;
+		case 'TBODY': idArray.push(GetCellID(context)); break;
 		case 'THEAD': $('.db-table tbody tr.checked').each((index, element) => idArray.push($(element).attr('id'))); break;
 	}
 	return idArray
@@ -228,15 +222,12 @@ function RemoveTrackedRecords(removeList, TestCondition, Callback = null) {
 function GetOriginalRecordValues(idArray) {
 	var changedRecords = []
 	for (let eachID = 0; eachID < idArray.length; eachID++) {
-		let trackedIndex = trackedRecords.filter(record => element.ID == idArray[eachID])
-		if (trackedIndex === null) continue
-		var fieldChanges = {}
+		let compareRecord = trackedRecords.filter(record => record.ID == idArray[eachID])[0]
+		if (!compareRecord) continue
 		var record = HTMLRowsToJSONRecords($(GetRowSelector([idArray[eachID]])))[0]
-		var compareRecord = trackedRecords[trackedIndex]
+		var fieldChanges = {}
 		for (let eachProperty in record) {
-			if (record[eachProperty] !== compareRecord[eachProperty]) {
-				fieldChanges[eachProperty] = parseInt(compareRecord[eachProperty]) || compareRecord[eachProperty]
-			}
+			if (record[eachProperty] !== compareRecord[eachProperty]) { fieldChanges[eachProperty] = compareRecord[eachProperty] }
 		}
 		changedRecords.push({'id':idArray[eachID], 'fields':fieldChanges})
 	}
@@ -266,35 +257,30 @@ function UpdateCheckedRows(checkedContext) {
 // ------------------------------------------------------------------------------------------------//
 // ------------------------------------------- HELPERS --------------------------------------------//
 // ------------------------------------------------------------------------------------------------//
-function Editable(element) { if ($(element).hasClass('read-only')) { return false } else { return true } }
+function Editable(element) { return !IsReadOnlyField(GetFieldName($(element).index())) }
 
 function ThrowJSONError(json) { alert(JSON.stringify(json)) }
 
 function GetFieldSelectorByIndex(index) { return $('.db-table > thead > tr > th:eq(' + index + ')') }
 function GetFieldSelectorByFieldName(fieldName) { return $('.db-table > thead > tr > th:eq(' + FindHTMLHeader(fieldName) + ')') }
-
-function IsIntField(fieldName) { return GetFieldSelectorByFieldName(fieldName)[0].classList.contains('INTEGER') || fieldName.match(/(q(uanti)?ty|c(ou)?nt)/i) }
-function IsNumberField(fieldName) { return GetFieldSelectorByFieldName(fieldName)[0].classList.contains('NUMBER') }
-function IsBoolField(fieldName) { return GetFieldSelectorByFieldName(fieldName).data('range') === '[-1,0,1]' || fieldName.match(/ed$|fl(a)?g/i) }
-
 function GetFieldName(index) { return GetFieldSelectorByIndex(index).text() }
-function GetFieldValue(dataIndex, dataElement) {
-	var value = null
+function GetFieldIndex(fieldName) { return $('.db-table > thead > tr > th').filter((index, element) => { return $(element).text() === fieldName }).index() }
+
+function IsIntField(fieldName) { return fieldSchema[fieldName].type === 'INTEGER' || fieldName.match(/q(uanti)?ty|c(ou)?nt/i) }
+function IsNumberField(fieldName) { return fieldSchema[fieldName].type === 'NUMBER' || fieldName.match(/num(ber)?/i) }
+function IsBoolField(fieldName) { return fieldSchema[fieldName].range === '-1,0,1' || fieldName.match(/ed$|fl(a)?g/i) }
+function IsReadOnlyField(fieldName) { return fieldSchema[fieldName].readOnly }
+
+function GetCellID(cell) { if (IsIntField('ID') || IsNumberField('ID')) return Number($(cell).closest('tr').attr('id')); return $(cell).closest('tr').attr('id') }
+function GetCellValue(dataIndex, dataElement) {
 	var fieldName = GetFieldName(dataIndex)
-	if (IsBoolField(fieldName)) { value += $(dataElement).prop('checked') } else if (IsIntField(fieldName) || IsNumberField(fieldName)) { value = Number($(dataElement).val()) } else { $(dataElement).val() }
-	return value
+	if (IsBoolField(fieldName)) { return 0 + $(dataElement).prop('checked') || Number($(dataElement).text()) }
+	else if (IsIntField(fieldName) || IsNumberField(fieldName)) { return ($(dataElement).text() === 'null') ? null : Number($(dataElement).text()) }
+	// Check that string isn't set to null - set return value as literal null and not just 'null'
+	else { return ($(dataElement).val() === '') ? $(dataElement).text() : $(dataElement).val() }
 }
 
-function FieldsToHTMLHeaders(fields) {
-	var html = ''
-	for (let eachField in fields) {
-		let readOnly = (fields[eachField].readOnly) ? 'read-only' : ''
-		html += '<th class="' + fields[eachField].type + ' ' + readOnly + ' data-range="' + fields[eachField].range + '">' + eachField + '</th>'
-	}
-	return html
-}
-
-function FindHTMLHeader(fieldName) { return $('.db-table > thead > tr > th').filter((index, element) => { $(element).text() === fieldName }).text() }
+function FieldsToHTMLHeaders(fields) { var html = ''; for (let eachField in fields) { html += '<th>' + eachField + '</th.type>' }; return html }
 
 function HTMLRowsToJSONRecords(jqueryRows) {
 	var jsonRecords = []
@@ -302,8 +288,8 @@ function HTMLRowsToJSONRecords(jqueryRows) {
 
 	$(jqueryRows).each((rowIndex, row) => {
 		let record = {}
-		record.ID = $(row).attr('id')
-		$(row).children('td').each(((dataIndex, dataElement) => { row[GetFieldName(dataIndex)] = GetFieldValue(dataIndex, dataElement) }))
+		record.ID = GetCellID(row)
+		$(row).children('td').each(((dataIndex, dataElement) => { if (GetFieldName(dataIndex).trim().length) record[GetFieldName(dataIndex)] = GetCellValue(dataIndex, dataElement) }))
 		jsonRecords.push(record)
 	})
 	return jsonRecords
@@ -321,8 +307,7 @@ function JSONRecordsToHTMLRows(jsonRecords) {
 		<img src="/icons/undo.svg" class="undo display-none-important line-icon" title="Undo all changes to this record">\
 		</td>'
 		for (let [field, value] of Object.entries(jsonRecords[eachRecord])) {
-			var readOnly = (GetFieldSelectorByFieldName(field).hasClass('read-only')) ? 'read-only' : ''
-			html += '<td class="td-padding ' + readOnly + '">' + value + '</td>'
+			html += '<td class="td-padding">' + value + '</td>'
 		}
 		html += '</tr>'
 	}
@@ -336,12 +321,12 @@ function SmartInput(cell) {
 	var max = ''
 	var checked = ''
 
-	if (IsIntField(fieldName)) {
+	if (IsBoolField(fieldName)) {
+		type = 'checkbox'
+		if (GetCellValue($(cell).index(), cell)) checked = 'checked'
+	} else if (IsIntField(fieldName)) {
 		type = 'number'
 		min = 0
-	} else if (IsBoolField(fieldName)) {
-		type = 'checkbox'
-		if (parseInt($(cell).text())) checked = 'checked'
 	}
 
 	return '<input type="' + type + '" min="' + min + '" max="' + max + '" ' + checked + ' value="' + $(cell).text() + '" class="smart-input">'

@@ -35,10 +35,11 @@ function Update(db, table, recordToUpdate, response) {
 	var sql = "UPDATE " + table + " SET " + updateClause + " WHERE ID=$id;"
 	var params = Object.values(updateRecord.fields)
 	params.push(updateRecord.id)
+	var returnFields = ['ID'].concat(Object.keys(updateRecord.fields))
 
 	db.run(sql, params, function(error) {
 		if (error) { db.close(); ReturnJSON(error, response) }
-		else { GetRecords(db, table, response, 'WHERE ID IN ($id)', updateRecord.id, Object.keys(updateRecord.fields)) }
+		else { GetRecords(db, table, response, 'WHERE ID IN ($id)', updateRecord.id, returnFields) }
 	})
 }
 
@@ -62,35 +63,14 @@ function GetFields(db, table, response) {
 		db.close(); if (error) { ReturnJSON(error, response) }
 		else {
 			var fields = {}
-			var fieldNames = []
-			var fieldTypes = []
-			var fieldCriteria = {}
-			var readOnly = []
-			var regexSql = rows[0].sql
-
-			regexSql.match(/`\w+`/g).forEach((element) => { fieldNames.push(element.replace(/`/g, '')) })
-			regexSql.match(/`\s\w+/g).forEach((element) => { fieldTypes.push(element.replace(/`\s/g, '')) })
-			var criteriaFound = /CHECK\(\w+ IN \(.+\,?\)\)/g.exec(regexSql)
-			if (criteriaFound) { criteriaFound.forEach((element) => {
-				let matchArray = /CHECK\((\w+) IN \((.+)\,?\)\)/.exec(element)
-				let field = matchArray[1]
-				let range = matchArray[2].split(',')
-				fieldCriteria[field] = range
-			})}
-			var readOnlyFound = /FOREIGN KEY\(`\w+`\)/g.exec(regexSql)
-			if (readOnlyFound) { readOnlyFound.forEach((element) => { readOnly.push(/FOREIGN KEY\((`\w+)\)/g.exec(element)[1]) }) }
-			for (let eachField = 0; eachField < fieldNames.length; eachField++) {
-				fields[fieldNames[eachField]] = {}
-				fields[fieldNames[eachField]].type = fieldTypes[eachField]
-				if (fieldNames[eachField] === 'ID') { fields[fieldNames[eachField]].readOnly = true; continue }
-				else { fields[fieldNames[eachField]].readOnly = false }
-				for (let eachReadOnly = 0; eachReadOnly < readOnly.length; eachReadOnly++) {
-					if (fieldNames[eachField] === readOnly[eachReadOnly]) {
-						fields[fieldNames[eachField]].readOnly = true
-						break
-					}
-				}
-			}
+			rows[0].sql.match(/`\w+`\s+(INTEGER|TEXT|NUMBER|BLOB|REAL).*(\,|\n)/g).forEach(declaration => {
+				var fieldName = declaration.match(/`(\w+)`/)[1]
+				var typeSet = declaration.match(/`\w+`\s*(\w+)/)[1]
+				var readOnlyFlag = declaration.match(/FOREIGN KEY/) || fieldName.includes('ID')
+				var rangeMatch = declaration.match(/CHECK\(\w+ IN \((.+)\)\)/)
+				rangeMatch = (rangeMatch) ? rangeMatch[1].replace(/ /g, '') : null
+				fields[fieldName] = {type:typeSet, readOnly:readOnlyFlag, range:rangeMatch}
+			})
 			ReturnJSON(fields, response)
 		}
 	})
