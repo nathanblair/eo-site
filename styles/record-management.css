@@ -11,8 +11,8 @@ main { padding: 3vh 3vw; }
 	border-collapse: collapse;
 }
 
+.db-table th:not(:first-child) { padding: 4px 2em; pointer-events: none; }
 .db-table th {
-	padding: 4px 2em;
 	white-space: nowrap;
 	border: solid 1px black;
 }
@@ -24,24 +24,6 @@ main { padding: 3vh 3vw; }
 	height: 32px;
 }
 .td-padding	{ padding: 4px 6px; }
-
-.line-icon {
-	display: inline-block;
-	height: 1.25em;
-	width: 1.25em;
-	background-size: 1.25em;
-	background-repeat: no-repeat;
-	background-position: center;
-	cursor: pointer;
-	margin: 0 4px;
-}
-
-.checkbox-icon {
-	background-image: url('/icons/checkbox.svg');
-}
-.toggle:checked ~ .checkbox-icon {
-	background-image: url('/icons/checkbox-checked.svg')
-}
 
 input {
 	box-sizing: border-box;

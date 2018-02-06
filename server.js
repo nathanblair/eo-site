@@ -8,6 +8,28 @@ var dblib = require('./database')
 // Get run-level of program; execute server on port 80 if root permissions are granted;
 // Otherwise, execute server on port 8080
 
+function GetParentRecords(db, table, idArray, response) {
+	idParamList = ''
+	for (var eachID = 0; eachID < idArray.length; eachID++) {idParamList += '?,'}
+	idParamList = idParamList.replace(/,$/, '')
+	GetRecords(db, table, response, 'WHERE ID IN(' + idParamList + ')', idArray, ['ID','Name','ParentID'])
+}
+
+function AddToNewKit(db, table, idArray, response) {
+	idArray = JSON.parse(idArray)
+	var sql = 'INSERT INTO ' + table + ' DEFAULT VALUES;'
+	db.run(sql, function(error, createdRecord) {
+		if (error) { db.close(); ReturnJSON(error, response) }
+		// Run update on the original idArray records and change their parent ID to this.lastID
+		for (let eachID = 0; eachID < idArray.length; eachID++) {
+
+		}
+		// else { GetRecords(db, table, response, 'WHERE ID=$id', {$id:this.lastID}) }
+		ReturnJSON(createdRecord)
+	})
+}
+
+
 function GetDBPath(host) {
 	var dbPath = pathlib.normalize(pathlib.dirname(require.main.filename)) + MapHostToPath(host)
 	var dbFile = fslib.readdirSync(dbPath).filter(function(file) {
@@ -19,7 +41,7 @@ function GetDBPath(host) {
 function Create(db, table, response) {
 	var sql = 'INSERT INTO ' + table + ' DEFAULT VALUES;'
 
-	db.run(sql, function(error, createdRecord) {
+	db.run(sql, function(error) {
 		if (error) { db.close(); ReturnJSON(error, response) }
 		else { GetRecords(db, table, response, 'WHERE ID=$id', {$id:this.lastID}) }
 	})
@@ -80,7 +102,8 @@ function GetRecords(db, table, response, filterClause = '', params = [], fields 
 	var selectFields = ''
 	if (fields !== '*') {
 		for (var eachField = 0; eachField < fields.length; eachField++) { selectFields += fields[eachField] + ',' }
-		selectFields = selectFields.replace(/,$/, '') }
+		selectFields = selectFields.replace(/,$/, '')
+	}
 	else { selectFields = fields }
 	var sql = 'SELECT ' + selectFields + ' FROM ' + table + ' ' + filterClause + ';'
 
@@ -155,6 +178,8 @@ function HandleDatabaseRequest(host, urlPath, response, action = 'getRecords', u
 	var table = urlPath.replace(/^\/|\/.+/g, '')
 
 	if (action === 'create') { Create(dblib.db, table, response) } 
+	else if (action === 'getParentRecords') { GetParentRecords(dblib.db, table, records, response) } 
+	else if (action === 'addToNewKit') { AddToNewKit(dblib.db, table, records, response) } 
 	else if (action === 'update') { Update(dblib.db, table, records, response) }
 	else if (action === 'delete') { Delete(dblib.db, table, records, response) }
 	else if (action === 'getFields') { GetFields(dblib.db, table, response) }

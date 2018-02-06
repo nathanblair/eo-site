@@ -6,9 +6,6 @@ var fieldSchema = {}
 var queued = 0
 var dragging = false
 
-// Continue testing update/rollback operations
-// Implement keyboard shortcuts
-
 // ------------------------------------------------------------------------------------------------//
 // ------------------------------------------ PAGE INFO -------------------------------------------//
 // ------------------------------------------------------------------------------------------------//
@@ -59,11 +56,23 @@ $('body').on('click', '.refresh', () => { Refresh() })
 // ------------------------------------- Create icon clicked --------------------------------------//
 $('body').on('click', '.create', () => { Create() })
 
-// ------------------------------------- Delete icon clicked -------------------------------------//
+// -------------------------------------- Delete icon clicked -------------------------------------//
 $('body').on('click', '.delete, .delete-all', (eventArgs) => { Delete(eventArgs.currentTarget) })
 
-// ------------------------------------- Undo icon clicked ---------------------------------------//
+// -------------------------------------- Undo icon clicked ---------------------------------------//
 $('body').on('click', '.undo, .undo-all', (eventArgs) => { Undo(eventArgs.currentTarget) })
+
+// ---------------------------- Add to new kit icon clicked ---------------------------------------//
+$('body').on('click', '.add-new-kit, .add-new-kit-all', (eventArgs) => { AddToNewKit(eventArgs.currentTarget) })
+
+// ---------------------------- Add to existing kit icon clicked ----------------------------------//
+$('body').on('click', '.add-existing-kit, .add-existing-kit-all', (eventArgs) => { AddToExistingKit(eventArgs.currentTarget) })
+
+// -------------------------------- Remove from kit icon clicked ----------------------------------//
+$('body').on('click', '.remove-kit, .remove-kit-all', (eventArgs) => { RemoveFromKit(eventArgs.currentTarget) })
+
+// ------------------------------- Sub-table toggle icon clicked ----------------------------------//
+$('body').on('click', '.sub-table-toggle', (eventArgs) => { ToggleSubTable(eventArgs.currentTarget) })
 
 // ------------------------------------------------------------------------------------------------//
 // --------------------------------------- EVENT ACTIONS ------------------------------------------//
@@ -81,6 +90,43 @@ function Delete(context) {
 function Undo(context) {
 	var undoQueue = GetOriginalRecordValues(GetIDsOfSelectedContext(context)); if (undoQueue.length === 0) { alert("There are no changes to roll back for a selected record!"); return }
 	if (confirm('Are you sure you want to undo changes to these ' + undoQueue.length + ' record(s)?')) { UpdateOpStatus(true, undoQueue.length); UndoCallback(undoQueue) }
+}
+
+function AddToNewKit(context) {
+	var idArray = GetIDsOfSelectedContext(context); if (idArray.length === 0) return;
+	UpdateOpStatus(true)
+	$.post('getParentRecords', JSON.stringify(idArray), parentRecords => {
+		if (parentRecords.errno) { ThrowJSONError(parentRecords) }
+		else if (parentRecords.length) {
+			var nameList = '\n'
+			parentRecords.forEach(record => { nameList += record.Name + '\n ' })
+			alert("There is already a parent for these records: " + nameList.replace(/,$/, ''))
+		} else {
+			if (confirm('Are you sure you want to add these ' + idArray.length + ' records to a new kit?')) {
+				UpdateOpStatus(true); $.post('addToNewKit', JSON.stringify(idArray), returnedRecord => AJAXCallback(returnedRecord, CreateCallback))
+			}
+		}
+		UpdateOpStatus(false)
+	}, 'json')
+}
+
+function AddToExistingKit(context) {
+	var idArray = GetIDsOfSelectedContext(context); if (idArray.length === 0) return;
+	if (confirm('Are you sure you want to add these ' + idArray.length + ' records to an existing kit?')) {
+		alert('Send post to add ' + idArray.toString() + ' to an existing kit!\n\nNot implemented yet!')
+	}
+}
+
+function RemoveFromKit(context) {
+	var idArray = GetIDsOfSelectedContext(context); if (idArray.length === 0) return;
+	if (confirm('Are you sure you want to remove these ' + idArray.length + ' records from this kit?')) {
+		alert('Send post to remove ' + idArray.toString() + ' from their parent kit.\n\nNot implemented yet!')
+	}
+}
+
+function ToggleSubTable(context) {
+	var idArray = GetIDsOfSelectedContext(context); if (idArray.length === 0) return;
+	alert('Toggling showing the sub-table for item(s) ' + idArray.toString())
 }
 
 // ------------------------------------------------------------------------------------------------//
@@ -176,7 +222,7 @@ function LeaveCellRemoveCondition(id, originalRecord) {
 	return true
 }
 
-function OpRemoveCondition(id, originalRecord) { return id === parseInt(originalRecord.ID) }
+function OpRemoveCondition(id, originalRecord) { return id === originalRecord.ID }
 
 // ------------------------------------------------------------------------------------------------//
 // ------------------------------------------- RECORDS --------------------------------------------//
@@ -193,7 +239,7 @@ function GetIDsOfSelectedContext(context) {
 	var idArray = []
 	switch ($(context).closest('tr').parent()[0].tagName) {
 		case 'TBODY': idArray.push(GetCellID(context)); break;
-		case 'THEAD': $('.db-table tbody tr.checked').each((index, element) => idArray.push($(element).attr('id'))); break;
+		case 'THEAD': $('.db-table tbody tr.checked').each((index, element) => idArray.push(GetCellID(element))); break;
 	}
 	return idArray
 }
@@ -268,7 +314,7 @@ function GetFieldIndex(fieldName) { return $('.db-table > thead > tr > th').filt
 
 function IsIntField(fieldName) { return fieldSchema[fieldName].type === 'INTEGER' || fieldName.match(/q(uanti)?ty|c(ou)?nt/i) }
 function IsNumberField(fieldName) { return fieldSchema[fieldName].type === 'NUMBER' || fieldName.match(/num(ber)?/i) }
-function IsBoolField(fieldName) { return fieldSchema[fieldName].range === '-1,0,1' || fieldName.match(/ed$|fl(a)?g/i) }
+function IsBoolField(fieldName) { return fieldSchema[fieldName].range === '-1,0,1' || fieldName.match(/^Is|^Can|ed$|fl(a)?g/i) }
 function IsReadOnlyField(fieldName) { return fieldSchema[fieldName].readOnly }
 
 function GetCellID(cell) { if (IsIntField('ID') || IsNumberField('ID')) return Number($(cell).closest('tr').attr('id')); return $(cell).closest('tr').attr('id') }
@@ -277,6 +323,7 @@ function GetCellValue(dataIndex, dataElement) {
 	if (IsBoolField(fieldName)) { return 0 + $(dataElement).prop('checked') || Number($(dataElement).text()) }
 	else if (IsIntField(fieldName) || IsNumberField(fieldName)) { return ($(dataElement).text() === 'null') ? null : Number($(dataElement).text()) }
 	// Check that string isn't set to null - set return value as literal null and not just 'null'
+	// TODO
 	else { return ($(dataElement).val() === '') ? $(dataElement).text() : $(dataElement).val() }
 }
 
@@ -303,12 +350,16 @@ function JSONRecordsToHTMLRows(jsonRecords) {
 		html += '<tr id="' + id + '"><td class="read-only">\
 		<input type="checkbox" id="bulk-apply-' + id + '" class="display-none toggle">\
 		<label for="bulk-apply-' + id + '" class="checkbox-icon line-icon"></label>\
-		<img src="/icons/delete.svg" class="delete line-icon" title="Delete this record from the database">\
-		<img src="/icons/undo.svg" class="undo display-none-important line-icon" title="Undo all changes to this record">\
-		</td>'
-		for (let [field, value] of Object.entries(jsonRecords[eachRecord])) {
-			html += '<td class="td-padding">' + value + '</td>'
+		<img src="/icons/delete.svg" class="delete line-icon" title="Delete this record from the database">'
+		if (jsonRecords[eachRecord].ParentID === null && !jsonRecords[eachRecord].CanCheckOut) {
+			html += '<img src="/icons/add-new-kit.svg" class="add-new-kit line-icon" title="Add this item to a new kit">\
+				<img src="/icons/add-existing-kit.svg" class="add-existing-kit line-icon" title="Add this item to an existing kit">'
+		} else {
+			html += '<input type="checkbox" id="sub-table-' + id + '" class="display-none toggle sub-table-toggle">\
+				<label for="sub-table-' + id + '" class="checkbox-icon line-icon"></label>'
 		}
+		html += '<img src="/icons/undo.svg" class="undo display-none-important line-icon" title="Undo all changes to this record"></td>'
+		for (let [field, value] of Object.entries(jsonRecords[eachRecord])) { html += '<td class="td-padding">' + value + '</td>' }
 		html += '</tr>'
 	}
 	return html
@@ -331,17 +382,3 @@ function SmartInput(cell) {
 
 	return '<input type="' + type + '" min="' + min + '" max="' + max + '" ' + checked + ' value="' + $(cell).text() + '" class="smart-input">'
 }
-
-// ------------------------------------------------------------------------------------------------//
-// ----------------------------------- KEYBOARD SHORTCUTS -----------------------------------------//
-// ------------------------------------------------------------------------------------------------//
-$('body').on('keyup', '.db-table > tbody > tr > td', (eventArgs) => {
-	switch (eventArgs.which) {
-		// case 13:
-		// 	$(eventArgs.currentTarget).blur()
-		// 	break
-		case 27:
-			console.log('Exit key pressed; Decline changes and exit cell')
-			break
-	}
-})
