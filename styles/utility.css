@@ -1,3 +1,28 @@
+.button	{
+	text-decoration: none;
+	padding: 0.25em 1em;
+	border-radius: 8px;
+	border: solid 3px;
+}
+
+.circular-button {
+	border-radius: 100%;
+}
+
+.line-icon {
+	display: inline-block;
+	height: 1.25em;
+	width: 1.25em;
+	background-size: 1.25em;
+	background-repeat: no-repeat;
+	background-position: center;
+	cursor: pointer;
+	margin: 0 4px;
+}
+
+.checkbox-icon { background-image: url('/icons/checkbox.svg'); }
+.toggle:checked ~ .checkbox-icon { background-image: url('/icons/checkbox-checked.svg') }
+
 .display-none 			{ display: none; }
 .display-none-important { display: none !important; }
 .display-inline-block 	{ display: inline-block; }
@@ -32,29 +57,4 @@ h2 						{ font-size: 3.0em; }
 .pl-1					{ padding-left: 1em; }
 .pr-1					{ padding-right: 1em; }
 .cursor-pointer 		{ cursor: pointer; }
-
-.button	{
-	text-decoration: none;
-	padding: 0.25em 1em;
-	border-radius: 8px;
-	border: solid 3px;
-}
-
-.circular-button {
-	border-radius: 100%;
-}
-
-.line-icon {
-	display: inline-block;
-	height: 1.25em;
-	width: 1.25em;
-	background-size: 1.25em;
-	background-repeat: no-repeat;
-	background-position: center;
-	cursor: pointer;
-	margin: 0 4px;
-}
-
-.checkbox-icon { background-image: url('/icons/checkbox.svg'); }
-.toggle:checked ~ .checkbox-icon { background-image: url('/icons/checkbox-checked.svg') }
 
