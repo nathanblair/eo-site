@@ -1,6 +1,7 @@
 const port = 8080
 const http = require('http')
 const urllib = require('url')
+const querylib = require('querystring')
 const fslib = require('fs')
 const pathlib = require('path')
 var dblib = require('./database')
@@ -84,11 +85,16 @@ function GetFields(db, table, response) {
 
 function GetRecords(db, table, response, filterClause = '', params = [], fields = '*') {
 	var selectFields = ''
-	if (fields !== '*') {
-		for (var eachField = 0; eachField < fields.length; eachField++) { selectFields += fields[eachField] + ',' }
-		selectFields = selectFields.replace(/,$/, '')
-	}
+	if (fields !== '*') { fields.forEach(eachField => selectFields += eachField + ','); selectFields = selectFields.replace(/,$/, '') }
 	else { selectFields = fields }
+	if (typeof filterClause == 'object') {
+		if (!Object.keys(filterClause).length) filterClause = ''
+		else {
+			tempClause = "WHERE "
+			for (let [key, value] of Object.entries(filterClause)) {tempClause += key + '=? AND '; params.push(value)}
+			filterClause = tempClause.replace(/( AND )$/, '')
+		}
+	}
 	var sql = 'SELECT ' + selectFields + ' FROM ' + table + ' ' + filterClause + ';'
 
 	db.all(sql, params, function(error, rows) { db.close(); if (error) { ReturnJSON(error, response) } else { ReturnJSON(rows, response) } })
@@ -159,20 +165,23 @@ function HandleResourceRequest(urlPath, response) {
 function HandleDatabaseRequest(host, urlPath, response, action = 'getRecords', urlQuery = [], records = []) {
 	var dbPath = GetDBPath(host)
 	dblib.Database(dbPath)
-	var table = urlPath.replace(/^\/|\/.+/g, '')
+	var table = urlQuery.table
+	delete urlQuery.table
+	var fields = Array.isArray(urlQuery.fields) ? urlQuery.fields : [urlQuery.fields]
+	delete urlQuery.fields
 
 	if (action === 'create') { Create(dblib.db, table, response) } 
 	else if (action === 'update') { Update(dblib.db, table, records, response) }
 	else if (action === 'delete') { Delete(dblib.db, table, records, response) }
 	else if (action === 'getFields') { GetFields(dblib.db, table, response) }
-	else if (action === 'getRecords') { GetRecords(dblib.db, table, response, urlQuery) }
+	else if (action === 'getRecords') { GetRecords(dblib.db, table, response, urlQuery, [], fields) }
 }
 
 function Router(request, response) {
 	var host = ParseHost(request.headers.host)
 	var parsedURL = urllib.parse(request.url)
 	var urlPath = parsedURL.pathname
-	var urlQuery = parsedURL.query || ''
+	var urlQuery = querylib.parse(parsedURL.query)
 	var requestData = ''
 	if (urlPath.endsWith('/')) urlPath = '/' + host.domain + '/index.html'
 	var action = urlPath.substr(urlPath.lastIndexOf('/') + 1)

@@ -1,0 +1,9 @@
+.toggle-sub-table {
+	background-image: url('/icons/toggle-sub-table.svg')
+}
+
+.sub-table {
+	border-collapse: collapse;
+	width: 80%;
+	margin: auto;
+}

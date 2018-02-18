@@ -47,7 +47,7 @@ input {
 	height: 84px;
 	width: 84px;
 	margin: 0 auto;
-	animation: rotating 3s linear infinite;
+	/* animation: rotating 3s linear infinite; */
 	z-index: 5;
 	position: relative;
 	background-color: #fff;

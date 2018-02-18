@@ -21,7 +21,8 @@
 }
 
 .checkbox-icon { background-image: url('/icons/checkbox.svg'); }
-.toggle:checked ~ .checkbox-icon { background-image: url('/icons/checkbox-checked.svg') }
+.toggle:checked ~ .checkbox-icon,
+.bulk-toggle:checked ~ .checkbox-icon { background-image: url('/icons/checkbox-checked.svg') }
 
 .display-none 			{ display: none; }
 .display-none-important { display: none !important; }
