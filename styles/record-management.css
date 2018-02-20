@@ -15,6 +15,8 @@ main { padding: 3vh 3vw; }
 .db-table th {
 	white-space: nowrap;
 	border: solid 1px black;
+	line-height: 0;
+	padding: 4px 0;
 }
 
 .db-table td {
@@ -41,6 +43,10 @@ input {
 	left: 4vw;
 	background-color: #fff;
 }
+
+.show-children-toggle + label { background-image: url('/icons/toggle-sub-table.svg'); }
+.show-kit-toggle + label { background-image: url('/icons/add-kit.svg') }
+.bulk-show-kit-toggle + label { background-image: url('/icons/add-kit-all.svg') }
 
 .await {
 	display: block;

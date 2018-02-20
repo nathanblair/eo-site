@@ -9,12 +9,13 @@
 </div>
 
 <div class="responsive-table"><table class="db-table"><thead><tr>
-<th id="bulk-ops-icons" class="line-height-0">
-	<input type="checkbox" id="bulk-select-all" class="display-none bulk-toggle">
+<th id="bulk-ops-icons">
 	<img src="/icons/refresh.svg" class="refresh line-icon" title="Refresh this table from the database">
-	<label for="bulk-select-all" class="checkbox-icon line-icon" title="Select all records in table"></label>
+	<input type="checkbox" id="bulk-select" class="display-none bulk-select-toggle">
+	<label for="bulk-select" class="checkbox-icon line-icon" title="Select all records in table"></label>
 	<img src="/icons/delete-all.svg" class="delete-all line-icon" title="Delete all selected records from database">
-	<img src="/icons/add-kit.svg" class="add-kit-all line-icon" title="Create a kit from selected records">
+	<input type="checkbox" id="bulk-show-kit" class="display-none bulk-show-kit-toggle">
+	<label for="bulk-show-kit" class="line-icon" title="Create a kit from selected records"></label>
 	<img src="/icons/undo-all.svg" class="undo-all line-icon" title="Undo all changes to selected records">
 </th>
 </tr></thead><tbody></tbody></table></div>

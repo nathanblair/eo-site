@@ -7,8 +7,6 @@ var queued = 0
 var dragging = false
 var pageTable = window.location.pathname.replace(/^\/|\/$/g, '')
 
-// How does a sub-table get shown when a bulk add-to-kit icon is selected?
-
 // Deleting an item will need a callback to remove its item ID from any other items' ParentID field
 // Will be another update operation and needs to happen as a callback after the delete has completed
 // Unsure if this belongs in server side code or client-side code?
@@ -77,7 +75,7 @@ $('body').on('blur', '.db-table > tbody > tr > td', eventArgs => {
 $('body').on('change', '.db-table > tbody > tr:not(.sub-table-row) > td:not(.read-only)', eventArgs => {
 	var cell = eventArgs.currentTarget
 	var row = GetRowSelector([GetCellID(cell)])
-	if ($(cell).closest('tr').children('td').eq(GetFieldIndex('ParentID')).text() !== 'null') $(row + ' > .add-kit').hide()
+	if ($(cell).closest('tr').children('td').eq(GetFieldIndex('ParentID')).text() !== 'null') $(row + ' > .show-kit').hide()
 	if (!IsReadOnlyField(GetFieldName($(cell).index()))) {
 		state = GetCellValue(cell) !== trackedRecords[GetCellID(cell)][GetFieldName($(cell).index())] ? 'inline-block' : 'none'
 		$(row + ' .undo').css('display', state)
@@ -88,10 +86,7 @@ $('body').on('change', '.db-table > tbody > tr:not(.sub-table-row) > td:not(.rea
 $('body').on('change', '.select-toggle', eventArgs => UpdateCheckedRows(eventArgs.target))
 
 // -------------------------------- Checked state of bulk icon changed ---------------------------//
-$('body').on('change', '.bulk-toggle', eventArgs => $(eventArgs.target).parents('thead').siblings('tbody').children('tr:not(.sub-table-row)').find('td > .select-toggle').prop('checked', eventArgs.target.checked).change())
-
-// --------------------------- Checked state of sub-table icon changed ---------------------------//
-$('body').on('change', '.sub-table-toggle', eventArgs => { ToggleSubTable(eventArgs.currentTarget, eventArgs.currentTarget.checked, 'manage') })
+$('body').on('change', '.bulk-select-toggle', eventArgs => $(eventArgs.target).parents('thead').siblings('tbody').children('tr:not(.sub-table-row)').find('td > .select-toggle').prop('checked', eventArgs.target.checked).change())
 
 // ------------------------------------ Refresh icon clicked -------------------------------------//
 $('body').on('click', '.refresh', () => { UpdateOpStatus(true); $.getJSON('getRecords?fields=*&table=' + pageTable, jsonRecords => AJAXCallback(jsonRecords, RefreshCallback)) })
@@ -114,17 +109,35 @@ $('body').on('click', '.undo, .undo-all', eventArgs => {
 	if (confirm('Are you sure you want to undo changes to these ' + undoQueue.length + ' record(s)?')) { UpdateOpStatus(true, undoQueue.length); UndoCallback(undoQueue) }
 })
 
+// ------------------------- Checked state of show children icon changed -------------------------//
+$('body').on('change', '.show-children-toggle', eventArgs => {
+	var cell = eventArgs.currentTarget
+	var action = 'manage'
+	ToggleSubTable(cell, cell.checked, action)
+	var id = $(cell).closest('tr').attr('id')
+	UpdateOpStatus(true)
+	$.getJSON('getRecords?table=' + pageTable + '&fields=Name&fields=Description&ParentID=' + id, jsonRecords => AJAXCallback(jsonRecords, SubTableCallback, null, action))
+})
+
+// -------------------------------- Select kit icon clicked ---------------------------------------//
+$('body').on('click', '.show-kit-toggle, .bulk-show-kit-toggle', eventArgs => { 
+	var cell = eventArgs.currentTarget
+	var action = 'edit'
+	ToggleSubTable(cell, cell.checked, action)
+	var id = $(cell).closest('tr').attr('id')
+	UpdateOpStatus(true)
+	$.getJSON('getRecords?table=' + pageTable + '&fields=Name&fields=Description&ID=!' + id, jsonRecords => AJAXCallback(jsonRecords, SubTableCallback, null, action))
+
+	// var idArray = GetIDsOfSelectedContext(eventArgs.currentTarget); if (idArray.length === 0) return
+	// returnedRecord needs to be the target record to assign as a parent
+	// $.post('update?table=' + pageTable, JSON.stringify({ id:idArray, fields:{ParentID:returnedRecords[0].ID}}), updatedChildren => { AJAXCallback(updatedChildren, UpdateCallback) })
+})
+
 // -------------------------------- Add to kit icon clicked ---------------------------------------//
-$('body').on('click', '.add-kit, .add-kit-all', eventArgs => { 
-	var returnedRecords = SelectFromSubTable(eventArgs.currentTarget)
-	var idArray = GetIDsOfSelectedContext(eventArgs.currentTarget); if (idArray.length === 0) return
-	if (confirm('Are you sure you want to add these ' + idArray.length + ' records to a kit?')) {
-		// returnedRecord needs to be the target record to assign as a parent
-		// Selected using subtable?
-		$.post('update?table=' + pageTable, JSON.stringify({ id:idArray, fields:{ParentID:returnedRecords[0].ID}}), updatedChildren => { AJAXCallback(updatedChildren, UpdateCallback) })
-	}
-	UpdateOpStatus(false)
- })
+$('body').on('click', '.add-kit', eventArgs => {
+	alert('Adding selected records to selected kit!')
+})
+
 
 // -------------------------------- Remove from kit icon clicked ----------------------------------//
 $('body').on('click', '.remove-kit, .remove-kit-all', eventArgs => { })
@@ -138,7 +151,7 @@ function AJAXCallback(jsonResults, successCallback, errorCallback = null, callba
 	UpdateOpStatus(false)
 }
 
-function RefreshCallback(jsonRecords) { $('#bulk-ops-icons .bulk-toggle').prop('checked', false).siblings('label').removeAttr('style'); $('.db-table > tbody').html(JSONRecordsToHTMLRows(jsonRecords)); trackedRecords = {} }
+function RefreshCallback(jsonRecords) { $('#bulk-ops-icons .bulk-select-toggle').prop('checked', false).siblings('label').removeAttr('style'); $('.db-table > tbody').html(JSONRecordsToHTMLRows(jsonRecords)); trackedRecords = {} }
 
 function SubTableCallback(jsonRecords, action) {
 	$('.sub-table > thead > tr > th').after(FieldsToHTMLHeaders(jsonRecords[0]))
@@ -253,7 +266,7 @@ function GetOriginalRecordValues(idArray) {
 
 function UpdateCheckedRows(checkedTarget = '.db-table') {
 	checkedTarget.checked ? $(checkedTarget).closest('tr').addClass('checked') : $(checkedTarget).closest('tr').removeClass('checked')
-	var headerToggle = $(checkedTarget).closest('tbody').siblings('thead').find('tr > th > .bulk-toggle').prop('checked', false)
+	var headerToggle = $(checkedTarget).closest('tbody').siblings('thead').find('tr > th > .bulk-select-toggle').prop('checked', false)
 	var headerCheckbox = $(checkedTarget).closest('tbody').siblings('thead').find('tr > th > .checkbox-icon').removeAttr('style')
 	$(headerCheckbox).removeAttr('style')
 	$(headerToggle).prop('checked', false)
@@ -268,25 +281,13 @@ function ToggleSubTable(cell, state, action) {
 	if (state) {
 		var html = '<tr class="sub-table-row"><td colspan="100%" class="sub-table-container"><table class="sub-table"><thead><tr><th>'
 		if (action === 'manage') {
-			html += '<input type="checkbox" id="bulk-select-all-sub-table" class="display-none bulk-toggle">\
+			html += '<input type="checkbox" id="bulk-select-all-sub-table" class="display-none bulk-select-toggle">\
 				<label for="bulk-select-all-sub-table" class="checkbox-icon line-icon" title="Select all items in kit"></label>\
 				<img src="/icons/delete-all.svg" class="remove-all-from-kit line-icon" title="Remove all selected items from kit">'
-		}
+		} else { html += '<img src="/icons/add-kit.svg" class="add-kit line-icon" title="Add selected records to selected kit">' }
 		html += '</th></tr></thead><tbody></tbody></td></tr>'
 		$(cell).closest('tr').after(html)
-		var id = $(cell).closest('tr').attr('id')
-		UpdateOpStatus(true)
-		$.getJSON('getRecords?table=' + pageTable + '&fields=Name&fields=Description&ParentID=' + id, jsonRecords => AJAXCallback(jsonRecords, SubTableCallback, null, action))
 	}
-}
-
-function SelectFromSubTable(cell) {
-	// Disable all other interactions?
-
-	// Show sub table
-
-	// id = chosen record ID from sub table
-	return HTMLRowsToJSONRecords($(GetRowSelector([id])))
 }
 
 // ------------------------------------------------------------------------------------------------//
@@ -333,27 +334,32 @@ function HTMLRowsToJSONRecords(jqueryRows) {
 function JSONRecordsToHTMLRows(jsonRecords, baseRecords = true, action = null) {
 	var html = ''
 	var id = null
+	var counter = 0
 	var parentArray = jsonRecords.filter(record => record.ParentID !== null).map(record => record.ParentID)
 	jsonRecords.forEach(eachRecord => {
-		id = eachRecord.ID
+		id = eachRecord.ID || counter++
 		if (baseRecords) {
 			html += '<tr id="' + id + '"><td class="read-only">\
-			<input type="checkbox" id="bulk-apply-' + id + '" class="display-none toggle select-toggle">\
-			<label for="bulk-apply-' + id + '" class="checkbox-icon line-icon"></label>\
-			<img src="/icons/delete.svg" class="delete line-icon" title="Delete this record from the database">\
-			<img src="/icons/undo.svg" class="undo line-icon display-none" title="Undo all changes to this record">'
-			if (eachRecord.ParentID === null && !eachRecord.CanCheckOut) html += '<img src="/icons/add-kit.svg" class="add-kit line-icon" title="Add this item to another to create a kit">'
+				<input type="checkbox" id="bulk-apply-' + id + '" class="display-none toggle select-toggle">\
+				<label for="bulk-apply-' + id + '" class="checkbox-icon line-icon"></label>\
+				<img src="/icons/delete.svg" class="delete line-icon" title="Delete this record from the database">\
+				<img src="/icons/undo.svg" class="undo line-icon display-none" title="Undo all changes to this record">'
+			if (eachRecord.ParentID === null && !eachRecord.CanCheckOut) {
+				html += '<input type="checkbox" id="show-kit-' + id + '" class="display-none toggle show-kit-toggle">\
+					<label for="show-kit-' + id + '" class="line-icon" title="Add this item to another to create a kit"></label>'
+			}
 			if (parentArray.indexOf(id) !== -1) {
-				html += '<input type="checkbox" id="toggle-sub-table-' + id + '" class="display-none sub-table-toggle toggle">\
-						<label for="toggle-sub-table-' + id + '" class="toggle toggle-sub-table line-icon" title="Show items in this kit"></label>'
+				html += '<input type="checkbox" id="show-children-' + id + '" class="display-none show-children-toggle toggle">\
+					<label for="show-children-' + id + '" class="line-icon" title="Show items in this kit"></label>'
 			}
 			html += '</td>'
 		} else if (action === 'manage') {
-			html += '<tr><td class="read-only">\
-				<input type="checkbox" id="bulk-apply-sub-table-' + id + '" class="display-none toggle select-toggle">\
+			html += '<tr><td class="read-only"><input type="checkbox" id="bulk-apply-sub-table-' + id + '" class="display-none toggle select-toggle">\
 				<label for="bulk-apply-sub-table-' + id + '" class="checkbox-icon line-icon"></label>\
-				<img src="/icons/delete.svg" class="remove-from-kit line-icon" title="Remove this item from the kit">\
-			</td>'
+				<img src="/icons/delete.svg" class="remove-from-kit line-icon" title="Remove this item from the kit"></td>'
+		} else if (action === 'edit') {
+			html += '<tr><td class="read-only"><input type="radio" id="select-kit-' + id + '" class="display-none radio select-kit" name="kit-select">\
+				<label for="select-kit-' + id + '" class="radio-icon line-icon" title="Select to add this as the parent in the kit"></td>'
 		} else { html += '<tr>'}
 		for (let [field, value] of Object.entries(eachRecord)) { html += '<td class="td-padding">' + value + '</td>' }
 		html += '</tr>'

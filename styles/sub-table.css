@@ -1,9 +1,12 @@
-.toggle-sub-table {
-	background-image: url('/icons/toggle-sub-table.svg')
+.sub-table {
+	display: inline-block;
+	max-height: 300px;
+	border-collapse: collapse;
+	overflow-y: auto;
+	float: left;
+	margin-left: 15vw;
 }
 
-.sub-table {
-	border-collapse: collapse;
-	width: 80%;
-	margin: auto;
+.sub-table td {
+	padding: 4px 2em;
 }

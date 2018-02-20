@@ -91,7 +91,10 @@ function GetRecords(db, table, response, filterClause = '', params = [], fields 
 		if (!Object.keys(filterClause).length) filterClause = ''
 		else {
 			tempClause = "WHERE "
-			for (let [key, value] of Object.entries(filterClause)) {tempClause += key + '=? AND '; params.push(value)}
+			for (let [key, value] of Object.entries(filterClause)) {
+				let op = value[0] === '!' ? '!=' : '='
+				tempClause += key + op + '? AND '; params.push(value.replace(/!/, ''))
+			}
 			filterClause = tempClause.replace(/( AND )$/, '')
 		}
 	}

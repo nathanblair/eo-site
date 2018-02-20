@@ -22,7 +22,9 @@
 
 .checkbox-icon { background-image: url('/icons/checkbox.svg'); }
 .toggle:checked ~ .checkbox-icon,
-.bulk-toggle:checked ~ .checkbox-icon { background-image: url('/icons/checkbox-checked.svg') }
+.bulk-toggle:checked ~ .checkbox-icon { background-image: url('/icons/checkbox-checked.svg'); }
+.radio-icon { background-image: url('/icons/radio.svg'); }
+.radio:checked ~ .radio-icon { background-image: url('/icons/radio-checked.svg'); }
 
 .display-none 			{ display: none; }
 .display-none-important { display: none !important; }
