@@ -1,5 +1,5 @@
 .sub-table {
-	display: inline-block;
+	display: block;
 	max-height: 300px;
 	border-collapse: collapse;
 	overflow-y: auto;
