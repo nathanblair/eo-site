@@ -85,7 +85,7 @@ function GetFields(db, table, response) {
 
 function GetRecords(db, table, response, filterClause = '', params = [], fields = '*') {
 	var selectFields = ''
-	if (fields !== '*') { fields.forEach(eachField => selectFields += eachField + ','); selectFields = selectFields.replace(/,$/, '') }
+	if (fields !== '*') { selectFields = fields.toString() }
 	else { selectFields = fields }
 	if (typeof filterClause == 'object') {
 		if (!Object.keys(filterClause).length) filterClause = ''
@@ -93,7 +93,8 @@ function GetRecords(db, table, response, filterClause = '', params = [], fields 
 			tempClause = "WHERE "
 			for (let [key, value] of Object.entries(filterClause)) {
 				let op = value[0] === '!' ? '!=' : '='
-				tempClause += key + op + '? AND '; params.push(value.replace(/!/, ''))
+				if (key === 'combinator') { tempClause += value + ' '}
+				else { tempClause += key + op + '? '; params.push(value.replace(/^[!\|<>]/,'')) }
 			}
 			filterClause = tempClause.replace(/( AND )$/, '')
 		}

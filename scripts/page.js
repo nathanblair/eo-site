@@ -7,9 +7,17 @@ var queued = 0
 var dragging = false
 var pageTable = window.location.pathname.replace(/^\/|\/$/g, '')
 
-// Deleting an item will need a callback to remove its item ID from any other items' ParentID field
-// Will be another update operation and needs to happen as a callback after the delete has completed
-// Unsure if this belongs in server side code or client-side code?
+// TODO
+// 		ORPHANAGE
+// If a parent is deleted, need to follow up update any ID's with that ID listed as its parent
+// Create an idArray and send an update POST using same call that remove-from-kit uses
+
+// Lots and lots and lots and lots and lots of testing for adding and removing and showing kits!
+
+// BUGS
+// 		Show-children icon not updated when remove from kit returns - CONFIRMED
+// 		Show-children icon not updated...when add to kit returns? - CONFIRMED
+
 
 // ------------------------------------------------------------------------------------------------//
 // ------------------------------------------ PAGE INFO -------------------------------------------//
@@ -38,14 +46,12 @@ $.get('main', data => {
 // ------------------------------------ Track dragging input --------------------------------------//
 $('body').on('touchmove', '.db-table > tbody > tr > td', () => dragging = true)
 
-// --------------------------------------- Edit table cell ----------------------------------------//
+// -------------------------------------- Enter table cell ----------------------------------------//
 $('body').on('dblclick touchend', '.db-table > tbody > tr > td:not(.read-only, .sub-table-container)', eventArgs => {
 	var cell = eventArgs.currentTarget;
-	if (!dragging && Editable(cell)) {
+	if (!dragging) {
 		var id = GetCellID(cell)
-		if (!trackedRecords[id]) {
-			for (let [recordID, record] of Object.entries(HTMLRowsToJSONRecords($(GetRowSelector([id]))))) { trackedRecords[recordID] = record }
-		}
+		if (!trackedRecords[id]) for (let [recordID, record] of Object.entries(HTMLRowsToJSONRecords($(GetRowSelector([id]))))) { trackedRecords[recordID] = record }
 		$(cell).removeClass('td-padding').html(SmartInput(cell)).children('.smart-input').focus().select()
 	}
 	dragging = false
@@ -53,33 +59,15 @@ $('body').on('dblclick touchend', '.db-table > tbody > tr > td:not(.read-only, .
 
 // -------------------------------------- Leave table cell ----------------------------------------//
 $('body').on('blur', '.db-table > tbody > tr > td', eventArgs => { 
-	let cell = eventArgs.currentTarget
+	var cell = eventArgs.currentTarget
 	var smartInput = $(cell).children('.smart-input')
 	if (!smartInput[0].checkValidity()) { smartInput.css('outline', 'solid red 1px').focus().select(); return }
 
 	var value = GetCellValue(smartInput[0])
 	$(cell).text(value).addClass('td-padding').children('.smart-input').remove()
 	
-	var id = GetCellID(cell)
-	if (RemoveTrackedRecords([id], LeaveCellRemoveCondition).length >= 1) {
-		let undoSelector = GetRowSelector([id]) + ' .undo'
-		$(undoSelector).hide()
-		return
-	}
 	UpdateOpStatus(true)
-	$.post(	'update?table=' + pageTable, JSON.stringify({'id':[id], fields:{ [GetFieldName($(cell).index())]: value }}), updates => { AJAXCallback(updates, UpdateCallback, ResetCellCallback, cell) }, 'json'
-	)
-})
-
-// ------------------------------------ Table cell changed ----------------------------------------//
-$('body').on('change', '.db-table > tbody > tr:not(.sub-table-row) > td:not(.read-only)', eventArgs => {
-	var cell = eventArgs.currentTarget
-	var row = GetRowSelector([GetCellID(cell)])
-	if ($(cell).closest('tr').children('td').eq(GetFieldIndex('ParentID')).text() !== 'null') $(row + ' > .show-kit').hide()
-	if (!IsReadOnlyField(GetFieldName($(cell).index()))) {
-		state = GetCellValue(cell) !== trackedRecords[GetCellID(cell)][GetFieldName($(cell).index())] ? 'inline-block' : 'none'
-		$(row + ' .undo').css('display', state)
-	}
+	$.post(	'update?table=' + pageTable, JSON.stringify({'id':[GetCellID(cell)], fields:{ [GetFieldName($(cell).index())]: value }}), updates => { AJAXCallback(updates, UpdateCallback, ResetCellCallback, cell) }, 'json' )
 })
 
 // --------------------------------- Checked state of row icon changed ---------------------------//
@@ -95,18 +83,19 @@ $('body').on('click', '.refresh', () => { UpdateOpStatus(true); $.getJSON('getRe
 $('body').on('click', '.create', () => { UpdateOpStatus(true); $.getJSON('create?table=' + pageTable, jsonRecords => AJAXCallback(jsonRecords, CreateCallback) ) })
 
 // ------------------------------------- Delete icon clicked -------------------------------------//
-$('body').on('click', 'tr:not(.sub-table) .delete, .delete-all', eventArgs => { 
-	var idArray = GetIDsOfSelectedContext(eventArgs.currentTarget); if (idArray.length === 0) return
+$('body').on('click', 'tr:not(.sub-table) .delete', eventArgs => { 
+	var idArray = GetIDArrayFromTarget(eventArgs.currentTarget)
 	if (confirm('Are you sure you want to delete these ' + idArray.length + ' record(s)?')) {
 		UpdateOpStatus(true); $.post('delete?table=' + pageTable, JSON.stringify(idArray), returnedList => AJAXCallback(returnedList, DeleteCallback, null, idArray), 'json')
 	}
 })
 
 // -------------------------------------- Undo icon clicked ---------------------------------------//
-$('body').on('click', '.undo, .undo-all', eventArgs => {
-	let undoQueue = GetOriginalRecordValues(GetIDsOfSelectedContext(eventArgs.currentTarget))
-	if (undoQueue.length === 0) { alert("There are no changes to roll back for a selected record!"); return }
-	if (confirm('Are you sure you want to undo changes to these ' + undoQueue.length + ' record(s)?')) { UpdateOpStatus(true, undoQueue.length); UndoCallback(undoQueue) }
+$('body').on('click', '.undo', eventArgs => {
+	var undoQueue = GetOriginalRecordValues(GetIDArrayFromTarget(eventArgs.currentTarget))
+	if (confirm('Are you sure you want to undo changes to these ' + undoQueue.length + ' record(s)?')) {
+		UpdateOpStatus(true, undoQueue.length); UndoCallback(undoQueue)
+	}
 })
 
 // ------------------------- Checked state of show children icon changed -------------------------//
@@ -116,7 +105,7 @@ $('body').on('change', '.show-children-toggle', eventArgs => {
 	ToggleSubTable(cell, cell.checked, action)
 	var id = $(cell).closest('tr').attr('id')
 	UpdateOpStatus(true)
-	$.getJSON('getRecords?table=' + pageTable + '&fields=Name&fields=Description&ParentID=' + id, jsonRecords => AJAXCallback(jsonRecords, SubTableCallback, null, action))
+	$.getJSON('getRecords?table=' + pageTable + '&fields=ID&fields=Name&fields=Description&ParentID=' + id, jsonRecords => AJAXCallback(jsonRecords, SubTableCallback, null, action))
 })
 
 // -------------------------------- Select kit icon clicked ---------------------------------------//
@@ -124,30 +113,42 @@ $('body').on('click', '.show-kit-toggle, .bulk-show-kit-toggle', eventArgs => {
 	var cell = eventArgs.currentTarget
 	var action = 'edit'
 	ToggleSubTable(cell, cell.checked, action)
+	if (!cell.checked) return
 	var id = $(cell).closest('tr').attr('id')
 	UpdateOpStatus(true)
-	$.getJSON('getRecords?table=' + pageTable + '&fields=Name&fields=Description&ID=!' + id, jsonRecords => AJAXCallback(jsonRecords, SubTableCallback, null, action))
-
-	// var idArray = GetIDsOfSelectedContext(eventArgs.currentTarget); if (idArray.length === 0) return
-	// returnedRecord needs to be the target record to assign as a parent
-	// $.post('update?table=' + pageTable, JSON.stringify({ id:idArray, fields:{ParentID:returnedRecords[0].ID}}), updatedChildren => { AJAXCallback(updatedChildren, UpdateCallback) })
+	$.getJSON('getRecords?table=' + pageTable + '&fields=ID&fields=Name&fields=Description&ID=!' + id + '&combinator=AND&ParentID=!' + id, jsonRecords => AJAXCallback(jsonRecords, SubTableCallback, null, action))
 })
 
 // -------------------------------- Add to kit icon clicked ---------------------------------------//
 $('body').on('click', '.add-kit', eventArgs => {
-	alert('Adding selected records to selected kit!')
+	var target = $(eventArgs.currentTarget).closest('.sub-table-row').prev('tr')
+	var idArray = GetIDArrayFromTarget(target)
+	var parentID = $('.sub-table > tbody > tr > td > input[type="radio"]:checked').attr('id').replace(/select-kit-/, '')
+	$.post('update?table=' + pageTable, JSON.stringify({ id:idArray, fields:{ParentID:parentID}}), updatedChildren => { AJAXCallback(updatedChildren, EditKitCallback) })
 })
 
-
 // -------------------------------- Remove from kit icon clicked ----------------------------------//
-$('body').on('click', '.remove-kit, .remove-kit-all', eventArgs => { })
+$('body').on('click', '.remove-kit', eventArgs => {
+	var idArray = []
+	var context = eventArgs.currentTarget
+	var targets = ($(context).parentsUntil('table').last().prop('nodeName') === 'THEAD') ?
+		$(context).closest('.sub-table').find('tr > td > .select-toggle:checked').closest('tr') : $(context).closest('tr')
+	$(targets).each((index, rowElement) => {
+		let idIndex = $(rowElement).closest('table').children('thead').children('tr').children('th').filter((index, headerElement) => {
+			return $(headerElement).text() === 'ID'
+		}).index()
+		let id = $(rowElement).children('td').eq(idIndex).text()
+		idArray.push(id)
+	})
+	$.post('update?table=' + pageTable, JSON.stringify({ id:idArray, fields:{ParentID:""}}), updatedChildren => { AJAXCallback(updatedChildren, EditKitCallback) })
+})
 
 // ------------------------------------------------------------------------------------------------//
 // ------------------------------------------- CALLBACKS ------------------------------------------//
 // ------------------------------------------------------------------------------------------------//
 function AJAXCallback(jsonResults, successCallback, errorCallback = null, callbackArg = null) {
 	if (jsonResults.errno) { if (errorCallback) errorCallback(jsonResults); ThrowJSONError(jsonResults) }
-	else if (successCallback) successCallback(jsonResults, callbackArg)
+	else if (successCallback) { successCallback(jsonResults, callbackArg) }
 	UpdateOpStatus(false)
 }
 
@@ -161,6 +162,7 @@ function SubTableCallback(jsonRecords, action) {
 function DeleteCallback(errorList, originalList) {
 	var successList = originalList.filter(originalID => errorList.indexOf(originalID) === -1)
 	$(GetRowSelector(successList)).remove()
+	$('.show-children-toggle:checked, .show-kit-toggle:checked').prop('checked', false).change()
 	UpdateCheckedRows()
 	RemoveTrackedRecords(successList, OpRemoveCondition)
 }
@@ -171,11 +173,16 @@ function CreateCallback(jsonRecords) {
 }
 
 function UpdateCallback(updates) {
+	$('.show-children-toggle:checked, .show-kit-toggle:checked').prop('checked', false).change()
 	updates.forEach(record => {
-		let row = GetRowSelector([record.ID])
 		for (let [key, value] of Object.entries(record)) {
-			if (key === 'ID') continue
-			$(row).children('td').eq(GetFieldIndex(key)).text(value).change()
+			if (key === 'ID') continue;
+			var cell = $(GetRowSelector([record.ID])).children('td').eq(GetFieldIndex(key))
+			$(cell).text(value)
+			UpdateShowKit(record.ID)
+			var row = GetRowSelector([record.ID])
+			var undoAble = !IsReadOnlyField(GetFieldName($(cell).index())) && (RemoveTrackedRecords([record.ID], LeaveCellRemoveCondition).length === 0)
+			$(row + ' .undo').toggleClass('disabled', !undoAble)
 		}
 	})
 }
@@ -196,10 +203,18 @@ function UndoCallback(undoQueue) {
 function UndoRowChange(id, originalRecord) {
 	var newRecord = HTMLRowsToJSONRecords($(GetRowSelector([id])))
 	newRecord = newRecord[Object.keys(newRecord)[0]]
-	for (let [oldField, oldValue] of Object.entries(originalRecord)) {
-		if (oldValue !== newRecord[oldField]) $('#' + id + ' > td:eq(' + GetFieldIndex(oldField) + ')').text(oldValue).change()
-	}
-	$(GetRowSelector([id]) + ' .toggle').prop('checked', false).change()
+	for (let [oldField, oldValue] of Object.entries(originalRecord)) { if (oldValue !== newRecord[oldField]) $('#' + id + ' > td:eq(' + GetFieldIndex(oldField) + ')').text(oldValue).change() }
+
+	UpdateShowKit(id)
+	var row = GetRowSelector([id])
+	$(row + ' .toggle:checked').prop('checked', false).change()
+	$(row + ' .undo').toggleClass('disabled', true)
+}
+
+function EditKitCallback(updates) {
+	ToggleSubTable(null, false)
+	UpdateCallback(updates)
+	$('.select-toggle:checked').prop('checked', false).change()
 }
 
 // ------------------------------------------------------------------------------------------------//
@@ -217,19 +232,17 @@ function OpRemoveCondition(id, originalRecord) { return id === originalRecord.ID
 // ------------------------------------------------------------------------------------------------//
 // ------------------------------------------- RECORDS --------------------------------------------//
 // ------------------------------------------------------------------------------------------------//
+function GetIDArrayFromTarget(target) {
+	var context = ($(target).parentsUntil('table').last().prop('nodeName') === 'THEAD') ? $(target).closest('table').children('tbody').children('tr:not(.sub-table-row)') : target
+	var idArray = []
+	if ($(context).length > 1) { $(context).find('td > .select-toggle:checked').closest('tr').each((index, element) => { idArray.push(GetCellID(element)) }) }
+	else { idArray.push(GetCellID(context)) }
+	return idArray
+}
 function GetRowSelector(idArray) {
 	var rowSelector = '.db-table > tbody > '
 	idArray.forEach(eachID => rowSelector += 'tr#' + eachID + ',' )
 	return rowSelector.replace(/,$/, '')
-}
-
-function GetIDsOfSelectedContext(context) {
-	var idArray = []
-	switch ($(context).closest('tr').parent()[0].tagName) {
-		case 'TBODY': idArray.push(GetCellID(context)); break;
-		case 'THEAD': $('.db-table tbody tr.checked').each((index, element) => idArray.push(GetCellID(element))); break;
-	}
-	return idArray
 }
 
 function UpdateOpStatus(status, increment = null) {
@@ -237,6 +250,12 @@ function UpdateOpStatus(status, increment = null) {
 	$('#queue-count > span').text(queued)
 	if (queued > 0) { $('#queue-count').show() }
 	else if (!queued) { $('#queue-count').hide() }
+}
+
+function UpdateShowKit(id) {
+	var row = GetRowSelector([id])
+	var state =	($(row).children('td').eq(GetFieldIndex('ParentID')).text() !== '') || ($(row).children('td').eq(GetFieldIndex('CanCheckOut')).text() === '1')
+	$(row + ' > td > .show-kit-toggle + label').toggleClass('disabled', state)
 }
 
 function RemoveTrackedRecords(removeList, TestCondition, Callback = null) {
@@ -265,14 +284,14 @@ function GetOriginalRecordValues(idArray) {
 }
 
 function UpdateCheckedRows(checkedTarget = '.db-table') {
-	checkedTarget.checked ? $(checkedTarget).closest('tr').addClass('checked') : $(checkedTarget).closest('tr').removeClass('checked')
-	var headerToggle = $(checkedTarget).closest('tbody').siblings('thead').find('tr > th > .bulk-select-toggle').prop('checked', false)
-	var headerCheckbox = $(checkedTarget).closest('tbody').siblings('thead').find('tr > th > .checkbox-icon').removeAttr('style')
-	$(headerCheckbox).removeAttr('style')
+	var headerToggle = $(checkedTarget).closest('tbody').siblings('thead').find('tr > th > .bulk-select-toggle')
 	$(headerToggle).prop('checked', false)
-	var targetRowCount = $(checkedTarget).closest('tbody').children('tr:not(.sub-table-row)').length
-	var checkedRowCount = $(checkedTarget).closest('tbody').children('tr:not(.sub-table-row).checked').length
-	if ((targetRowCount > 0) && ( checkedRowCount === targetRowCount)) { $(headerToggle).prop('checked', true) }
+	var headerCheckbox = $(checkedTarget).closest('tbody').siblings('thead').find('tr > th > .checkbox-icon')
+	$(headerCheckbox).removeAttr('style')
+	var targetRows = $(checkedTarget).closest('tbody').children('tr:not(.sub-table-row)')
+	var targetRowCount = targetRows.length
+	var checkedRowCount = $(targetRows).find('td:first-child > .select-toggle:checked').length
+	if (checkedRowCount > 0 && checkedRowCount === targetRowCount) { $(headerToggle).prop('checked', true) }
 	else if (checkedRowCount > 0 && checkedRowCount < targetRowCount) { $(headerCheckbox).css('background-image', 'url(/icons/indeterminate.svg') }
 }
 
@@ -281,9 +300,9 @@ function ToggleSubTable(cell, state, action) {
 	if (state) {
 		var html = '<tr class="sub-table-row"><td colspan="100%" class="sub-table-container"><table class="sub-table"><thead><tr><th>'
 		if (action === 'manage') {
-			html += '<input type="checkbox" id="bulk-select-all-sub-table" class="display-none bulk-select-toggle">\
+			html += '<input type="checkbox" id="bulk-select-all-sub-table" class="display-none bulk-select-toggle toggle">\
 				<label for="bulk-select-all-sub-table" class="checkbox-icon line-icon" title="Select all items in kit"></label>\
-				<img src="/icons/delete-all.svg" class="remove-all-from-kit line-icon" title="Remove all selected items from kit">'
+				<img src="/icons/delete-all.svg" class="remove-kit line-icon" title="Remove all selected items from kit">'
 		} else { html += '<img src="/icons/add-kit.svg" class="add-kit line-icon" title="Add selected records to selected kit">' }
 		html += '</th></tr></thead><tbody></tbody></td></tr>'
 		$(cell).closest('tr').after(html)
@@ -293,8 +312,6 @@ function ToggleSubTable(cell, state, action) {
 // ------------------------------------------------------------------------------------------------//
 // ------------------------------------------- HELPERS --------------------------------------------//
 // ------------------------------------------------------------------------------------------------//
-function Editable(element) { return !IsReadOnlyField(GetFieldName($(element).index())) }
-
 function ThrowJSONError(json) { alert(JSON.stringify(json)) }
 
 function GetFieldName(index) { return $('.db-table > thead > tr > th').eq(index).text() }
@@ -304,10 +321,6 @@ function IsIntField(fieldName) { return fieldSchema[fieldName].type === 'INTEGER
 function IsNumberField(fieldName) { return fieldSchema[fieldName].type === 'NUMBER' || fieldName.match(/num(ber)?/i) }
 function IsBoolField(fieldName) { return fieldSchema[fieldName].range === '-1,0,1' || fieldName.match(/^Is|^Can|ed$|fl(a)?g/i) }
 function IsReadOnlyField(fieldName) { return fieldSchema[fieldName].readOnly }
-function IsParent(jsonRecords, id) {
-	let returnID = jsonRecords.filter(record => { return record.ParentID === id })
-	return returnID
-}
 
 function GetCellID(cell) { if (IsIntField('ID') || IsNumberField('ID')) return Number($(cell).closest('tr').attr('id')); return $(cell).closest('tr').attr('id') }
 function GetCellValue(dataElement) {
@@ -334,34 +347,35 @@ function HTMLRowsToJSONRecords(jqueryRows) {
 function JSONRecordsToHTMLRows(jsonRecords, baseRecords = true, action = null) {
 	var html = ''
 	var id = null
-	var counter = 0
 	var parentArray = jsonRecords.filter(record => record.ParentID !== null).map(record => record.ParentID)
 	jsonRecords.forEach(eachRecord => {
-		id = eachRecord.ID || counter++
+		id = eachRecord.ID
 		if (baseRecords) {
+			var enableKit = ''
+			if (eachRecord.ParentID !== '' | eachRecord.CanCheckOut) enableKit = 'disabled'
+			var enableChildren = (parentArray.indexOf(id) > -1) ? '' : 'disabled'
 			html += '<tr id="' + id + '"><td class="read-only">\
-				<input type="checkbox" id="bulk-apply-' + id + '" class="display-none toggle select-toggle">\
-				<label for="bulk-apply-' + id + '" class="checkbox-icon line-icon"></label>\
+				<input type="checkbox" id="show-children-' + id + '" class="display-none show-children-toggle toggle">\
+				<label for="show-children-' + id + '" class="line-icon ' + enableChildren + '" title="Show items in this kit"></label>\
+				<input type="checkbox" id="bulk-select-' + id + '" class="display-none toggle select-toggle">\
+				<label for="bulk-select-' + id + '" class="checkbox-icon line-icon"></label>\
 				<img src="/icons/delete.svg" class="delete line-icon" title="Delete this record from the database">\
-				<img src="/icons/undo.svg" class="undo line-icon display-none" title="Undo all changes to this record">'
-			if (eachRecord.ParentID === null && !eachRecord.CanCheckOut) {
-				html += '<input type="checkbox" id="show-kit-' + id + '" class="display-none toggle show-kit-toggle">\
-					<label for="show-kit-' + id + '" class="line-icon" title="Add this item to another to create a kit"></label>'
-			}
-			if (parentArray.indexOf(id) !== -1) {
-				html += '<input type="checkbox" id="show-children-' + id + '" class="display-none show-children-toggle toggle">\
-					<label for="show-children-' + id + '" class="line-icon" title="Show items in this kit"></label>'
-			}
-			html += '</td>'
+				<input type="checkbox" id="show-kit-' + id + '" class="display-none toggle show-kit-toggle">\
+				<label for="show-kit-' + id + '" class="line-icon ' + enableKit + '" title="Add this item to another to create a kit"></label>\
+				<img src="/icons/undo.svg" class="undo line-icon disabled" title="Undo all changes to this record">\
+				</td>'
 		} else if (action === 'manage') {
-			html += '<tr><td class="read-only"><input type="checkbox" id="bulk-apply-sub-table-' + id + '" class="display-none toggle select-toggle">\
-				<label for="bulk-apply-sub-table-' + id + '" class="checkbox-icon line-icon"></label>\
-				<img src="/icons/delete.svg" class="remove-from-kit line-icon" title="Remove this item from the kit"></td>'
+			html += '<tr><td class="read-only"><input type="checkbox" id="bulk-select-sub-table-' + id + '" class="display-none toggle select-toggle">\
+				<label for="bulk-select-sub-table-' + id + '" class="checkbox-icon line-icon"></label>\
+				<img src="/icons/delete.svg" class="remove-kit line-icon" title="Remove this item from the kit"></td>'
 		} else if (action === 'edit') {
-			html += '<tr><td class="read-only"><input type="radio" id="select-kit-' + id + '" class="display-none radio select-kit" name="kit-select">\
+			html += '<tr><td class="read-only"><input type="radio" id="select-kit-' + id + '" class="display-none radio" name="kit-select">\
 				<label for="select-kit-' + id + '" class="radio-icon line-icon" title="Select to add this as the parent in the kit"></td>'
 		} else { html += '<tr>'}
-		for (let [field, value] of Object.entries(eachRecord)) { html += '<td class="td-padding">' + value + '</td>' }
+		for (let [field, value] of Object.entries(eachRecord)) {
+			let readOnly = (field.includes("ID")) ? 'read-only' : ''
+			html += '<td class="td-padding ' + readOnly + '">' + value + '</td>'
+		}
 		html += '</tr>'
 	})
 	return html

@@ -19,12 +19,21 @@
 	cursor: pointer;
 	margin: 0 4px;
 }
+.line-icon-no-pointer {
+	display: inline-block;
+	height: 1.25em;
+	width: 1.25em;
+	background-size: 1.25em;
+	background-repeat: no-repeat;
+	background-position: center;
+	margin: 0 4px;
+}
 
 .checkbox-icon { background-image: url('/icons/checkbox.svg'); }
-.toggle:checked ~ .checkbox-icon,
-.bulk-toggle:checked ~ .checkbox-icon { background-image: url('/icons/checkbox-checked.svg'); }
+.toggle:checked + .checkbox-icon { background-image: url('/icons/checkbox-checked.svg'); }
 .radio-icon { background-image: url('/icons/radio.svg'); }
-.radio:checked ~ .radio-icon { background-image: url('/icons/radio-checked.svg'); }
+.radio:checked + .radio-icon { background-image: url('/icons/radio-checked.svg'); }
+.disabled { pointer-events: none; opacity: 0.3; }
 
 .display-none 			{ display: none; }
 .display-none-important { display: none !important; }

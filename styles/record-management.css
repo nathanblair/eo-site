@@ -7,17 +7,26 @@ main { padding: 3vh 3vw; }
 
 .db-table {
 	width: 100%;
-	border: solid 1px black;
 	border-collapse: collapse;
 }
 
-.db-table th:not(:first-child) { padding: 4px 2em; pointer-events: none; }
+.db-table th:not(:first-child) { pointer-events: none; }
 .db-table th {
 	white-space: nowrap;
-	border: solid 1px black;
 	line-height: 0;
 	padding: 4px 0;
+	border-bottom: solid 1px black; 
 }
+
+.db-table > thead > tr > th { border-top: solid 1px black; }
+
+.db-table > tbody > tr { border-bottom: 1px solid #ccc; }
+.db-table > tbody > tr:nth-child(even):not(.sub-table-row) { background-color: #eee;}
+.db-table > tbody > tr:hover:not(.sub-table-row) { background-color: #ddd;}
+.db-table > tbody > tr:not(.sub-table-row) > td:first-child,
+.db-table > thead > tr:not(.sub-table-row) > th:first-child { padding-right: 1em; }
+
+tr:not(.sub-table-row) > td:first-child, tr:not(.sub-table-row) > th:first-child { border-right: solid 1px #444;}
 
 .db-table td {
 	text-align: center;
@@ -25,7 +34,7 @@ main { padding: 3vh 3vw; }
 	white-space: nowrap;
 	height: 32px;
 }
-.td-padding	{ padding: 4px 6px; }
+.td-padding	{ padding: 12px 2.5em; }
 
 input {
 	box-sizing: border-box;
