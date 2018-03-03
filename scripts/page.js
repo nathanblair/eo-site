@@ -16,7 +16,7 @@ var pageTable = window.location.pathname.replace(/^\/|\/$/g, '')
 
 // BUGS
 // 		Show-children icon not updated when remove from kit returns - CONFIRMED
-// 		Show-children icon not updated...when add to kit returns? - CONFIRMED
+// 		Show-children icon not updated when add to kit returns? - CONFIRMED
 
 
 // ------------------------------------------------------------------------------------------------//
@@ -165,6 +165,13 @@ function DeleteCallback(errorList, originalList) {
 	$('.show-children-toggle:checked, .show-kit-toggle:checked').prop('checked', false).change()
 	UpdateCheckedRows()
 	RemoveTrackedRecords(successList, OpRemoveCondition)
+	var parentIDIndex = GetFieldIndex('ParentID') + 1
+	var targets = $('.db-table > tbody > tr:not(.sub-table-row) > td:nth-child(' + parentIDIndex + ')').filter((index, tdElement) => {
+		var parentID = (IsIntField('ParentID') || IsNumberField('ParentID')) ?  Number($(tdElement).text()) : $($(tdElement).text())
+		return successList.indexOf(parentID) > -1
+	})
+	var idArray = targets.map((index, rowElement) => { return GetCellID(rowElement) }).get()
+	if (idArray) $.post('update?table=' + pageTable, JSON.stringify({ id:idArray, fields:{ParentID:""}}), updatedChildren => { AJAXCallback(updatedChildren, EditKitCallback) })
 }
 
 function CreateCallback(jsonRecords) {
