@@ -69,4 +69,5 @@ h2 						{ font-size: 3.0em; }
 .pl-1					{ padding-left: 1em; }
 .pr-1					{ padding-right: 1em; }
 .cursor-pointer 		{ cursor: pointer; }
+.cursor-none			{ cursor: default; }
 

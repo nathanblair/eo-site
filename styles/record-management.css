@@ -14,7 +14,7 @@ main { padding: 3vh 3vw; }
 .db-table th {
 	white-space: nowrap;
 	line-height: 0;
-	padding: 4px 0;
+	padding: 4px 2em;
 	border-bottom: solid 1px black; 
 }
 
@@ -23,8 +23,6 @@ main { padding: 3vh 3vw; }
 .db-table > tbody > tr { border-bottom: 1px solid #ccc; }
 .db-table > tbody > tr:nth-child(even):not(.sub-table-row) { background-color: #eee;}
 .db-table > tbody > tr:hover:not(.sub-table-row) { background-color: #ddd;}
-.db-table > tbody > tr:not(.sub-table-row) > td:first-child,
-.db-table > thead > tr:not(.sub-table-row) > th:first-child { padding-right: 1em; }
 
 tr:not(.sub-table-row) > td:first-child, tr:not(.sub-table-row) > th:first-child { border-right: solid 1px #444;}
 
@@ -53,8 +51,10 @@ input {
 	background-color: #fff;
 }
 
-.show-children-toggle + label { background-image: url('/icons/toggle-sub-table.svg'); }
+.show-children-toggle + label { background-image: url('/icons/arrow-down.svg') }
+.show-children-toggle:checked + label { background-image: url('/icons/arrow-up.svg') }
 .show-kit-toggle + label { background-image: url('/icons/add-kit.svg') }
+.show-kit-toggle:checked + label { background-image: url('/icons/close.svg'); }
 .bulk-show-kit-toggle + label { background-image: url('/icons/add-kit-all.svg') }
 
 .await {

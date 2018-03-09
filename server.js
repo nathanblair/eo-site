@@ -22,7 +22,7 @@ function Create(db, table, response) {
 
 	db.run(sql, function(error) {
 		if (error) { db.close(); ReturnJSON(error, response) }
-		else { GetRecords(db, table, response, 'WHERE ID=$id', {$id:this.lastID}) }
+		else { GetRecords(db, table, response, ' WHERE ID=$id', {$id:this.lastID}) }
 	})
 }
 
@@ -45,7 +45,7 @@ function Update(db, table, recordToUpdate, response) {
 	var returnFields = ['ID'].concat(Object.keys(updateRecord.fields))
 
 	db.run(sql, params, function(error) {
-		if (error) { db.close(); ReturnJSON(error, response) }
+		if (error) { db.close(); error['id'] = updateRecord.id; ReturnJSON(error, response) }
 		else { GetRecords(db, table, response, whereClause, updateRecord.id, returnFields) }
 	})
 }
@@ -55,11 +55,12 @@ function Delete(db, table, idArray, response) {
 	idArray = JSON.parse(idArray)
 	for (var eachID = 0; eachID < idArray.length; eachID++) {idParamList += '?,'}
 	idParamList = idParamList.replace(/,$/, '')
+
 	var sql = 'DELETE FROM ' + table + ' WHERE ID IN (' + idParamList + ');'
 
 	db.run(sql, idArray, function(error) {
 		if (error) { db.close(); ReturnJSON(error, response) }
-		else { GetRecords(db, table, response, 'WHERE ID IN (' + idParamList + ')', idArray, ['ID']) }
+		else { GetRecords(db, table, response, ' WHERE ID IN (' + idParamList + ')', idArray, ['ID']) }
 	})
 }
 
@@ -74,9 +75,17 @@ function GetFields(db, table, response) {
 				var fieldName = declaration.match(/`(\w+)`/)[1]
 				var typeSet = declaration.match(/`\w+`\s*(\w+)/)[1]
 				var readOnlyFlag = declaration.match(/FOREIGN KEY/) || fieldName.includes('ID')
+				var foreignKeyTable = declaration.match(/FOREIGN KEY/)
 				var rangeMatch = declaration.match(/CHECK\(\w+ IN \((.+)\)\)/)
+				var foreignKey = {}
+				var foreignKeyExp = RegExp("FOREIGN KEY\\(`" + fieldName + "`\\) REFERENCES `\\w+`\\(`\\w+`\\)",'g')
+				var foreignKeys = rows[0].sql.match(foreignKeyExp)
+				if (foreignKeys) {
+					foreignKey.table = foreignKeys[0].match(/REFERENCES `(\w+)`/)[1]
+					foreignKey.field = foreignKeys[0].match(/REFERENCES `\w+`\(`(\w+)`\)/)[1]
+				}
 				rangeMatch = (rangeMatch) ? rangeMatch[1].replace(/ /g, '') : null
-				fields[fieldName] = {type:typeSet, readOnly:readOnlyFlag, range:rangeMatch}
+				fields[fieldName] = {type:typeSet, readOnly:readOnlyFlag, range:rangeMatch, foreignKey:foreignKey}
 			})
 			ReturnJSON(fields, response)
 		}
@@ -85,21 +94,37 @@ function GetFields(db, table, response) {
 
 function GetRecords(db, table, response, filterClause = '', params = [], fields = '*') {
 	var selectFields = ''
-	if (fields !== '*') { selectFields = fields.toString() }
+	var innerJoins = []
+	if (fields !== '*') {
+		fields.forEach(eachField => {
+			let [localField, foreignTable, foreignField] = eachField.split(',')
+			if (foreignField && foreignTable) {
+				let displayField = (foreignField === 'ID') ? 'Name' : field
+				let displayTable = localField.replace(/ID/, '')
+				selectFields += foreignTable + '.' + displayField + ' AS ' + displayTable + displayField
+				innerJoins.push(' INNER JOIN ' + foreignTable + ' ON ' + localField + ' = ' + foreignTable + '.' + foreignField)
+			} else { selectFields += table + '.' + eachField }
+			selectFields += ','
+		})
+		selectFields = selectFields.replace(/,$/,'')
+	}
 	else { selectFields = fields }
 	if (typeof filterClause == 'object') {
 		if (!Object.keys(filterClause).length) filterClause = ''
 		else {
-			tempClause = "WHERE "
+			var tempClause = " WHERE "
 			for (let [key, value] of Object.entries(filterClause)) {
-				let op = value[0] === '!' ? '!=' : '='
-				if (key === 'combinator') { tempClause += value + ' '}
-				else { tempClause += key + op + '? '; params.push(value.replace(/^[!\|<>]/,'')) }
+				let op = value[0] === '!' ? ' NOT IN (' : ' IN ('
+				let paramValues = value.replace(/^[!\|<>]/,'').split(',')
+				tempClause += key + op
+				paramValues.forEach(param => { if (param !== "") { tempClause += '?,'; params.push(param) } })
+				tempClause = tempClause.replace(/,$/, '')
+				tempClause += ') AND '
 			}
 			filterClause = tempClause.replace(/( AND )$/, '')
 		}
 	}
-	var sql = 'SELECT ' + selectFields + ' FROM ' + table + ' ' + filterClause + ';'
+	var sql = 'SELECT ' + selectFields + ' FROM ' + table + filterClause + innerJoins.toString().replace(/,/g, '') + ';'
 
 	db.all(sql, params, function(error, rows) { db.close(); if (error) { ReturnJSON(error, response) } else { ReturnJSON(rows, response) } })
 }
