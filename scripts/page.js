@@ -44,7 +44,12 @@ $('body').on('dblclick touchend', '.db-table > tbody > tr > td:not(.read-only, .
 	if (!dragging) {
 		var id = GetCellID(cell)
 		if (!trackedRecords[id]) for (let [recordID, record] of Object.entries(HTMLRowsToJSONRecords($(GetRowSelector([id]))))) { trackedRecords[recordID] = record }
-		$(cell).removeClass('td-padding').html(SmartInput(cell)).children('.smart-input').focus().select()
+		var fieldName = GetFieldName($(cell).index())
+		if (IsIndirectField(fieldName)) {
+			UpdateOpStatus(true)
+			var queryString = 'fields=' + fieldSchema[fieldName].foreignKey.field + '&fields=' + fieldSchema[fieldName].foreignKey.indirectField + '&CanCheckOut=1'
+			$.getJSON('getRecords?table=' + fieldSchema[fieldName].foreignKey.table + '&' + queryString, jsonRecords => { AJAXCallback(jsonRecords, OpenSmartInput, null, cell) })
+		} else { OpenSmartInput(null, cell) }
 	}
 	dragging = false
 })
@@ -57,9 +62,15 @@ $('body').on('blur', '.db-table > tbody > tr > td', eventArgs => {
 
 	var value = GetCellValue(smartInput[0])
 	$(cell).text(value).addClass('td-padding').children('.smart-input').remove()
+
+	// Handle sending information about getting an indirect field
 	
 	UpdateOpStatus(true)
-	$.post(	'update?table=' + pageTable, JSON.stringify({'id':[GetCellID(cell)], fields:{ [GetFieldName($(cell).index())]: value }}), updates => { AJAXCallback(updates, UpdateCallback, ResetChangeCallback, cell) }, 'json' )
+	$.post(
+		'update?table=' + pageTable,
+		JSON.stringify({'id':[GetCellID(cell)], fields:{ [GetFieldName($(cell).index())]: value }}),
+		updates => { AJAXCallback(updates, UpdateCallback, ResetChangeCallback, cell) }, 'json'
+	)
 })
 
 // --------------------------------- Checked state of row icon changed ---------------------------//
@@ -173,8 +184,8 @@ function DeleteCallback(errorList, originalList) {
 	})
 
 	$(GetRowSelector(successList)).remove()
-	UpdateCheckedRows()
 	RemoveTrackedRecords(successList, OpRemoveCondition)
+	UpdateCheckedRows()
 
 	var disableParents = {}
 	parentTargets.forEach(parentID => { disableParents[parentID] = (disableParents[parentID] || 0) + 1 })
@@ -184,7 +195,7 @@ function DeleteCallback(errorList, originalList) {
 
 	var idArray = []
 	orphanTargets.forEach(rowElement => { idArray.push(GetCellID(rowElement)) })
-	if (idArray) $.post('update?table=' + pageTable, JSON.stringify({ id:idArray, fields:{ParentID:""}}), updatedChildren => { AJAXCallback(updatedChildren, EditKitCallback) })
+	if (idArray.length) $.post('update?table=' + pageTable, JSON.stringify({ id:idArray, fields:{ParentID:""}}), updatedChildren => { AJAXCallback(updatedChildren, EditKitCallback) })
 
 }
 
@@ -236,7 +247,7 @@ function UndoCallback(undoQueue) {
 	}, 'json')
 }
 
-function ResetChangeCallback(id) { UndoRowChange(id, trackedRecords[id]) }
+function ResetChangeCallback(id) { UndoRowChange(id, trackedRecords[id]); RemoveTrackedRecords([id], LeaveCellRemoveCondition) }
 
 function UndoRowChange(id, originalRecord) {
 	var newRecord = HTMLRowsToJSONRecords($(GetRowSelector([id])))
@@ -283,6 +294,10 @@ function GetRowSelector(idArray) {
 	return rowSelector.replace(/,$/, '')
 }
 
+function OpenSmartInput(options, cell) {
+	$(cell).removeClass('td-padding').html(SmartInput(cell, options)).children('.smart-input').focus().select()
+}
+
 function UpdateOpStatus(status, increment = null) {
 	if (status && increment) {queued += increment } else if (status) { queued++ } else { queued-- }
 	$('#queue-count > span').text(queued)
@@ -321,7 +336,7 @@ function GetOriginalRecordValues(idArray) {
 	return changedRecords
 }
 
-function UpdateCheckedRows(checkedTarget = '.db-table') {
+function UpdateCheckedRows(checkedTarget = '.db-table > tbody') {
 	var headerToggle = $(checkedTarget).closest('tbody').siblings('thead').find('tr > th > .bulk-select-toggle')
 	$(headerToggle).prop('checked', false)
 	var headerCheckbox = $(checkedTarget).closest('tbody').siblings('thead').find('tr > th > .checkbox-icon')
@@ -357,15 +372,28 @@ function GetFieldIndex(fieldName) { return $('.db-table > thead > tr > th').filt
 
 function IsIntField(fieldName) { return fieldSchema[fieldName].type === 'INTEGER' || fieldName.match(/q(uanti)?ty|c(ou)?nt/i) }
 function IsNumberField(fieldName) { return fieldSchema[fieldName].type === 'NUMBER' || fieldName.match(/num(ber)?/i) }
-function IsBoolField(fieldName) { return fieldSchema[fieldName].range === '-1,0,1' || fieldName.match(/^Is|^Can|ed$|fl(a)?g/i) }
+function IsBoolField(fieldName) {
+	return fieldName.match(/^Is|^Can|ed$|fl(a)?g/i)
+		|| (fieldSchema[fieldName].range !== null
+		&& fieldSchema[fieldName].range[0] === '-1'
+		&& fieldSchema[fieldName].range[1] === '0'
+		&& fieldSchema[fieldName].range[2] === '1')
+}
 function IsReadOnlyField(fieldName) { return fieldSchema[fieldName].readOnly }
+function IsRangeField(fieldName) { return fieldSchema[fieldName].range !== null && fieldSchema[fieldName].range.length > 0 }
+function IsDateField(fieldName) { return fieldName.match(/date/i) && !fieldName.match(/time/i) }
+function IsDateTimeField(fieldName) { return fieldName.match(/datetime/i) }
+function IsIndirectField(fieldName) { return Object.values(fieldSchema[fieldName].foreignKey).length && Object.values(fieldSchema[fieldName].foreignKey.indirectField).length }
 
 function GetCellID(cell) { if (IsIntField('ID') || IsNumberField('ID')) return Number($(cell).closest('tr').attr('id')); return $(cell).closest('tr').attr('id') }
 function GetCellValue(dataElement) {
 	var fieldName = GetFieldName($(dataElement).closest('td').index())
 	if (fieldSchema[fieldName]) {
 		if (IsBoolField(fieldName)) { return 0 + $(dataElement).prop('checked') || Number($(dataElement).text()) }
-		else if (IsIntField(fieldName) || IsNumberField(fieldName)) { return ($(dataElement).text() === 'null') ? null : Number($(dataElement).text()) }
+		else if (IsIndirectField(fieldName)) { return ($(dataElement).hasClass('smart-input')) ? $(dataElement.options[dataElement.selectedIndex]).attr('id').replace(/option-/, '') : $(dataElement).text() }
+		else if (IsIntField(fieldName) || IsNumberField(fieldName)) { return Number((!dataElement.value) ? $(dataElement).text() : dataElement.value) }
+		else if (IsRangeField(fieldName)) { return ($(dataElement).hasClass('smart-input')) ? fieldSchema[fieldName].range[dataElement.selectedIndex] : $(dataElement).text() }
+		else if (IsDateTimeField(fieldName)) { return ($(dataElement).hasClass('smart-input')) ? $(dataElement).val().replace(/T/, ' ') : $(dataElement).text().replace(/ /, 'T') }
 	}
 	return ($(dataElement).val() === '') ? $(dataElement).text() : $(dataElement).val()
 }
@@ -432,21 +460,39 @@ function JSONRecordsToHTMLRows(jsonRecords, baseRecords = true, action = null) {
 	return html
 }
 
-function SmartInput(cell) {
+function SmartInput(cell, options = null) {
 	var fieldName = GetFieldName($(cell).index())
+	var html = ''
 	var type = 'text'
-	var min = ''
+	var min = 0
 	var max = ''
-	var checked = ''
-	if (fieldSchema[fieldName]) {
-		if (IsBoolField(fieldName)) {
-			type = 'checkbox'
-			if (GetCellValue(cell)) checked = 'checked'
-		} else if (IsIntField(fieldName)) {
-			type = 'number'
-			min = 0
-		}
+	var value = GetCellValue(cell)
+	var checked = (value) ? 'checked' : ''
+	var value = $(cell).text()
+	if (IsRangeField(fieldName)) {
+		html = '<select class="smart-input">'
+		fieldSchema[fieldName].range.forEach(eachValue => {
+			html += '<option value="' + eachValue + '"'
+			html += (value === eachValue) ? ' selected' : ''
+			html += '>' + eachValue + '</option>'
+		})
+		html += '</select>'
+	} else if (IsIndirectField(fieldName) && options) {
+		html = '<select class="smart-input">'
+		options.forEach(eachOption => {
+			let keys = Object.keys(eachOption)
+			html += '<option value="' + eachOption[keys[1]] + '" id=option-' + eachOption[keys[0]]
+			html += (value === eachOption[keys[1]]) ? ' selected' : ''
+			html += '>' + eachOption[keys[1]] + '</option>'
+		})
+		html += '</select>'
+	} else {
+		if (IsBoolField(fieldName)) { type = 'checkbox' }
+		else if (IsIntField(fieldName)) { type = 'number' }
+		else if (IsDateField(fieldName)) { type = 'date' }
+		else if (IsDateTimeField(fieldName)) { type = 'datetime-local'; value = value.replace(/ /, 'T') }
+		html = '<input type="' + type + '" min="' + min + '" max="' + max + '" ' + checked + ' value="' + value + '" class="smart-input">'
 	}
 
-	return '<input type="' + type + '" min="' + min + '" max="' + max + '" ' + checked + ' value="' + $(cell).text() + '" class="smart-input">'
+	return html
 }

@@ -14,7 +14,7 @@ main { padding: 3vh 3vw; }
 .db-table th {
 	white-space: nowrap;
 	line-height: 0;
-	padding: 4px 2em;
+	padding: 4px 1em;
 	border-bottom: solid 1px black; 
 }
 
@@ -32,7 +32,7 @@ tr:not(.sub-table-row) > td:first-child, tr:not(.sub-table-row) > th:first-child
 	white-space: nowrap;
 	height: 32px;
 }
-.td-padding	{ padding: 12px 2.5em; }
+.td-padding	{ padding: 4px 1em; }
 
 input {
 	box-sizing: border-box;
@@ -41,6 +41,9 @@ input {
 	height: 100%;
 	text-align: center;
 }
+
+select { height: 100%; border: none; text-align: center; }
+select, select > option { font-size: 1.05em; }
 
 .create {
 	height: 84px;

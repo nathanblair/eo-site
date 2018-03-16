@@ -83,8 +83,10 @@ function GetFields(db, table, response) {
 				if (foreignKeys) {
 					foreignKey.table = foreignKeys[0].match(/REFERENCES `(\w+)`/)[1]
 					foreignKey.field = foreignKeys[0].match(/REFERENCES `\w+`\(`(\w+)`\)/)[1]
+					if (foreignKey.field === 'ID') foreignKey.indirectField = 'Name'
 				}
-				rangeMatch = (rangeMatch) ? rangeMatch[1].replace(/ /g, '') : null
+
+				rangeMatch = (rangeMatch) ? rangeMatch[1].replace(/'| /g, '').split(',') : null
 				fields[fieldName] = {type:typeSet, readOnly:readOnlyFlag, range:rangeMatch, foreignKey:foreignKey}
 			})
 			ReturnJSON(fields, response)
@@ -97,14 +99,12 @@ function GetRecords(db, table, response, filterClause = '', params = [], fields 
 	var innerJoins = []
 	if (fields !== '*') {
 		fields.forEach(eachField => {
-			let [localField, foreignTable, foreignField] = eachField.split(',')
+			let [localField, foreignTable, foreignField, indirectField] = eachField.split(',')
 			if (foreignField && foreignTable) {
-				let displayField = (foreignField === 'ID') ? 'Name' : field
-				let displayTable = localField.replace(/ID/, '')
-				selectFields += foreignTable + '.' + displayField + ' AS ' + displayTable + displayField
+				if (indirectField) selectFields += foreignTable + '.' + indirectField + ','
 				innerJoins.push(' INNER JOIN ' + foreignTable + ' ON ' + localField + ' = ' + foreignTable + '.' + foreignField)
-			} else { selectFields += table + '.' + eachField }
-			selectFields += ','
+			}
+			selectFields += table + '.' + localField + ','
 		})
 		selectFields = selectFields.replace(/,$/,'')
 	}
@@ -124,9 +124,12 @@ function GetRecords(db, table, response, filterClause = '', params = [], fields 
 			filterClause = tempClause.replace(/( AND )$/, '')
 		}
 	}
-	var sql = 'SELECT ' + selectFields + ' FROM ' + table + filterClause + innerJoins.toString().replace(/,/g, '') + ';'
+	var sql = 'SELECT ' + selectFields + ' FROM ' + table + innerJoins.toString().replace(/,/g, '') + filterClause + ';'
 
-	db.all(sql, params, function(error, rows) { db.close(); if (error) { ReturnJSON(error, response) } else { ReturnJSON(rows, response) } })
+	db.all(sql, params, function(error, rows) {
+		db.close()
+		if (error) { ReturnJSON(error, response) } else { ReturnJSON(rows, response) }
+	})
 }
 
 function GetMain(host, urlPath, response) { HandleResourceRequest(MapHostToPath(host) + urlPath + '.html', response) }
