@@ -1,0 +1,17 @@
+<link rel="stylesheet" href="/styles/record-management.css">
+<img src="/icons/add.svg" alt="+" class="create display-block cursor-pointer circular-button">
+
+<div id="queue-count" class="queue-label display-none">
+	<span>0</span>
+	<img src="/icons/refresh.svg" alt="0" id="await-cursor" class="await circular-button">
+</div>
+
+<div class="responsive-table"><table class="db-table"><thead><tr>
+<th id="bulk-ops-icons">
+	<img src="/icons/refresh.svg" class="refresh line-icon" title="Refresh this table from the database">
+	<input type="checkbox" id="bulk-select" class="display-none bulk-select-toggle toggle">
+	<label for="bulk-select" class="checkbox-icon line-icon" title="Select all records in table"></label>
+	<img src="/icons/delete-all.svg" class="delete line-icon" title="Delete all selected records from database">
+	<img src="/icons/undo-all.svg" class="undo line-icon" title="Undo all changes to selected records">
+</th>
+</tr></thead><tbody></tbody></table></div

@@ -58,7 +58,7 @@ $('body').on('dblclick touchend', '.db-table > tbody > tr > td:not(.read-only, .
 $('body').on('blur', '.db-table > tbody > tr > td', eventArgs => { 
 	var cell = eventArgs.currentTarget
 	var smartInput = $(cell).children('.smart-input')
-	if (!smartInput[0].checkValidity()) { smartInput.css('outline', 'solid red 1px').focus().select(); return }
+	if (!smartInput[0].checkValidity()) { smartInput.css('outline', 'solid red 1px').select().focus(); return }
 
 	var value = GetCellValue(smartInput[0])
 	$(cell).text(value).addClass('td-padding').children('.smart-input').remove()
@@ -407,6 +407,8 @@ function IsReadOnlyField(fieldName) { return fieldSchema[fieldName].readOnly }
 function IsRangeField(fieldName) { return fieldSchema[fieldName].range !== null && fieldSchema[fieldName].range.length > 0 }
 function IsDateField(fieldName) { return fieldName.match(/date/i) && !fieldName.match(/time/i) }
 function IsDateTimeField(fieldName) { return fieldName.match(/datetime/i) }
+function IsEmailField(fieldName) { return fieldName.match(/email/i) }
+function IsPhoneField(fieldName) { return fieldName.match(/phone/i) }
 function IsIndirectField(fieldName) { return Object.values(fieldSchema[fieldName].foreignKey).length && Object.values(fieldSchema[fieldName].foreignKey.indirectField).length }
 
 function GetCellID(cell) { if (IsIntField('ID') || IsNumberField('ID')) return Number($(cell).closest('tr').attr('id')); return $(cell).closest('tr').attr('id') }
@@ -422,6 +424,12 @@ function GetCellValue(dataElement) {
 		else if (IsIntField(fieldName) || IsNumberField(fieldName)) { return Number((!dataElement.value) ? $(dataElement).text() : dataElement.value) }
 		else if (IsRangeField(fieldName)) { return ($(dataElement).hasClass('smart-input')) ? fieldSchema[fieldName].range[dataElement.selectedIndex] : $(dataElement).text() }
 		else if (IsDateTimeField(fieldName)) { return ($(dataElement).hasClass('smart-input')) ? $(dataElement).val().replace(/T/, ' ') : $(dataElement).text().replace(/ /, 'T') }
+		else if (IsPhoneField(fieldName)) {
+			let value = ($(dataElement).hasClass('smart-input')) ? $(dataElement).val() : $(dataElement).text()
+			let matchValues = value.match(/([0-9]{3})([0-9]{3})([0-9]{4})/)
+			let returnValue = (matchValues) ? '(' + matchValues[1] + ')' + matchValues[2] + '-' + matchValues[3] : value
+			return returnValue
+		}
 	}
 	return ($(dataElement).val() === '') ? $(dataElement).text() : $(dataElement).val()
 }
@@ -504,9 +512,11 @@ function SmartInput(cell, options = null) {
 	var min = 0
 	var max = ''
 	var value = GetCellValue(cell)
+	var placeholder = ''
+	var pattern = ''
 	var checked = (value) ? 'checked' : ''
 	if (IsRangeField(fieldName) && !IsBoolField(fieldName)) {
-		html = '<select class="smart-input">'
+		html = '<se1ect class="smart-input">'
 		fieldSchema[fieldName].range.forEach(eachValue => {
 			html += '<option value="' + eachValue + '"'
 			html += (value === eachValue) ? ' selected' : ''
@@ -527,7 +537,16 @@ function SmartInput(cell, options = null) {
 		else if (IsIntField(fieldName)) { type = 'number' }
 		else if (IsDateField(fieldName)) { type = 'date' }
 		else if (IsDateTimeField(fieldName)) { type = 'datetime-local'; value = value.replace(/ /, 'T') }
-		html = '<input type="' + type + '" min="' + min + '" max="' + max + '" ' + checked + ' value="' + value + '" class="smart-input">'
+		else if (IsEmailField(fieldName)) { type = 'email'; placeholder = 'someone@example.com' }
+		else if (IsPhoneField(fieldName)) { type = 'tel'; placeholder = '(555)555-5555'; pattern = 'pattern="\\(*[0-9]{3}\\)*[0-9]{3}\-*[0-9]{4}"' }
+		html = '<input type="' + type
+				  + '" min="' + min
+				  + '" max="' + max
+				  + '" ' + checked
+				  + ' value="' + value
+				  + '" placeholder="' + placeholder
+				  + '"' + pattern
+				  + ' class="smart-input">'
 	}
 
 	return html
