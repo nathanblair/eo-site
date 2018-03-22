@@ -29,24 +29,27 @@ function Create(db, table, response) {
 function Update(db, table, recordToUpdate, response) {
 	var updateRecord = JSON.parse(recordToUpdate)
 	var updateClause = ''
-	for (var eachField in updateRecord.fields) {
-		updateClause += eachField + '=$' + eachField + ','
-	}
+	for (var eachField in updateRecord.fields) { updateClause += eachField + '=$' + eachField + ',' }
 	updateClause = updateClause.replace(/,$/, '')
 	
 	var idParamList = ''
 	updateRecord.id.forEach(() => idParamList += '?,')
 	idParamList = idParamList.replace(/,$/, '')
 	
-	var whereClause = " WHERE ID IN (" + idParamList + ")"
-	var sql = "UPDATE " + table + " SET " + updateClause + whereClause 
+	var whereClause = ' WHERE ' + table + '.ID IN (' + idParamList + ')'
+	var sql = 'UPDATE ' + table + ' SET ' + updateClause + whereClause 
 	var params = Object.values(updateRecord.fields)
 	params = params.concat(updateRecord.id)
-	var returnFields = ['ID'].concat(Object.keys(updateRecord.fields))
+	var returnFields = Object.keys(updateRecord.fields).toString()
+	if (updateRecord.foreignKey && updateRecord.foreignKey.foreignField) returnFields + ',' + Object.keys(updateRecord.fields).toString() + ',' + updateRecord.foreignKey.table + ',' + updateRecord.foreignKey.field
+	if (updateRecord.foreignKey && updateRecord.foreignKey.indirectField) returnFields + ',' + updateRecord.foreignKey.indirectField
+	returnFields = ['ID'].concat([returnFields])
+
+	var getID = updateRecord.id
 
 	db.run(sql, params, function(error) {
 		if (error) { db.close(); error['id'] = updateRecord.id; ReturnJSON(error, response) }
-		else { GetRecords(db, table, response, whereClause, updateRecord.id, returnFields) }
+		else { GetRecords(db, table, response, whereClause, getID, returnFields) }
 	})
 }
 

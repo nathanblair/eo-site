@@ -47,7 +47,7 @@ $('body').on('dblclick touchend', '.db-table > tbody > tr > td:not(.read-only, .
 		var fieldName = GetFieldName($(cell).index())
 		if (IsIndirectField(fieldName)) {
 			UpdateOpStatus(true)
-			var queryString = 'fields=' + fieldSchema[fieldName].foreignKey.field + '&fields=' + fieldSchema[fieldName].foreignKey.indirectField + '&CanCheckOut=1'
+			var queryString = 'fields=' + fieldSchema[fieldName].foreignKey.field + '&fields=' + fieldSchema[fieldName].foreignKey.indirectField + '&CanCheckOut=1&Archived=0'
 			$.getJSON('getRecords?table=' + fieldSchema[fieldName].foreignKey.table + '&' + queryString, jsonRecords => { AJAXCallback(jsonRecords, OpenSmartInput, null, cell) })
 		} else { OpenSmartInput(null, cell) }
 	}
@@ -63,12 +63,10 @@ $('body').on('blur', '.db-table > tbody > tr > td', eventArgs => {
 	var value = GetCellValue(smartInput[0])
 	$(cell).text(value).addClass('td-padding').children('.smart-input').remove()
 
-	// Handle sending information about getting an indirect field
-	
 	UpdateOpStatus(true)
 	$.post(
 		'update?table=' + pageTable,
-		JSON.stringify({'id':[GetCellID(cell)], fields:{ [GetFieldName($(cell).index())]: value }}),
+		JSON.stringify({'id':[GetCellID(cell)], fields:{ [GetFieldName($(cell).index())]: value }, foreignKey: fieldSchema[GetFieldName($(cell).index())].foreignKey }),
 		updates => { AJAXCallback(updates, UpdateCallback, ResetChangeCallback, cell) }, 'json'
 	)
 })
@@ -229,7 +227,15 @@ function UpdateCallback(updates) {
 			var cell = $(GetRowSelector([record.ID])).children('td').eq(GetFieldIndex(key))
 			$(cell).text(value)
 			var row = GetRowSelector([record.ID])
-			var undoAble = !IsReadOnlyField(GetFieldName($(cell).index())) && (RemoveTrackedRecords([record.ID], LeaveCellRemoveCondition).length === 0)
+			let fieldName = GetFieldName($(cell).index())
+			if (IsIndirectField(fieldName)) {
+				$(cell).attr('id', 'indirect' + fieldName + '-' + record.ID + '-' + value)
+				let foreignKey = fieldSchema[fieldName].foreignKey
+				var queryString = 'fields=' + foreignKey.indirectField + '&ID=' + value
+				UpdateOpStatus(true)
+				$.getJSON('getRecords?table=' + foreignKey.table + '&' + queryString, jsonRecords => { AJAXCallback(jsonRecords, IndirectFieldCallback, null, cell) })
+			}
+			var undoAble = !IsReadOnlyField(fieldName) && (RemoveTrackedRecords([record.ID], LeaveCellRemoveCondition).length === 0)
 			$(row + ' .undo').toggleClass('disabled', !undoAble)
 		}
 		UpdateShowKit(record.ID)
@@ -252,7 +258,20 @@ function ResetChangeCallback(id) { UndoRowChange(id, trackedRecords[id]); Remove
 function UndoRowChange(id, originalRecord) {
 	var newRecord = HTMLRowsToJSONRecords($(GetRowSelector([id])))
 	newRecord = newRecord[Object.keys(newRecord)[0]]
-	for (let [oldField, oldValue] of Object.entries(originalRecord)) { if (oldValue !== newRecord[oldField]) $('#' + id + ' > td:eq(' + GetFieldIndex(oldField) + ')').text(oldValue).change() }
+	for (let [oldField, oldValue] of Object.entries(originalRecord)) {
+		if (oldValue !== newRecord[oldField]) {
+			let cell = $('#' + id + ' > td:eq(' + GetFieldIndex(oldField) + ')')
+			$(cell).text(oldValue)
+			let fieldName = GetFieldName($(cell).index())
+			if (IsIndirectField(fieldName)) {
+				$(cell).attr('id', 'indirect' + fieldName + '-' + id + '-' + oldValue)
+				let foreignKey = fieldSchema[fieldName].foreignKey
+				var queryString = 'fields=' + foreignKey.indirectField + '&ID=' + oldValue
+				UpdateOpStatus(true)
+				$.getJSON('getRecords?table=' + foreignKey.table + '&' + queryString, jsonRecords => { AJAXCallback(jsonRecords, IndirectFieldCallback, null, cell) })
+			}
+		}
+	}
 
 	UpdateShowKit(id)
 	var row = GetRowSelector([id])
@@ -264,6 +283,11 @@ function EditKitCallback(updates) {
 	ToggleSubTable(null, false)
 	UpdateCallback(updates)
 	$('.select-toggle:checked').prop('checked', false).change()
+}
+
+function IndirectFieldCallback(updates, cell) {
+	var element = (typeof cell === 'string') ? $('#' + cell.match(/-(\w+)/)[1] + '>#' + cell) : cell
+	$(element).text(Object.values(updates[0])[0])
 }
 
 // ------------------------------------------------------------------------------------------------//
@@ -390,7 +414,11 @@ function GetCellValue(dataElement) {
 	var fieldName = GetFieldName($(dataElement).closest('td').index())
 	if (fieldSchema[fieldName]) {
 		if (IsBoolField(fieldName)) { return 0 + $(dataElement).prop('checked') || Number($(dataElement).text()) }
-		else if (IsIndirectField(fieldName)) { return ($(dataElement).hasClass('smart-input')) ? $(dataElement.options[dataElement.selectedIndex]).attr('id').replace(/option-/, '') : $(dataElement).text() }
+		else if (IsIndirectField(fieldName)) {
+			let value = ($(dataElement).hasClass('smart-input')) ? $(dataElement.options[dataElement.selectedIndex]).attr('id').replace(/option-/, '') :
+				$(dataElement).attr('id').substr($(dataElement).attr('id').lastIndexOf('-') + 1) || $(dataElement).text()
+			return (IsIntField(fieldName) || IsNumberField(fieldName)) ? Number(value) : value
+		}
 		else if (IsIntField(fieldName) || IsNumberField(fieldName)) { return Number((!dataElement.value) ? $(dataElement).text() : dataElement.value) }
 		else if (IsRangeField(fieldName)) { return ($(dataElement).hasClass('smart-input')) ? fieldSchema[fieldName].range[dataElement.selectedIndex] : $(dataElement).text() }
 		else if (IsDateTimeField(fieldName)) { return ($(dataElement).hasClass('smart-input')) ? $(dataElement).val().replace(/T/, ' ') : $(dataElement).text().replace(/ /, 'T') }
@@ -453,7 +481,16 @@ function JSONRecordsToHTMLRows(jsonRecords, baseRecords = true, action = null) {
 		} else { html += '<tr>'}
 		for (let [field, value] of Object.entries(eachRecord)) {
 			let readOnly = (field.includes("ID")) ? 'read-only' : ''
-			html += '<td class="td-padding ' + readOnly + '">' + value + '</td>'
+			let indirect = ''
+			if (fieldSchema[field].foreignKey.indirectField) {
+				indirect = 'id=indirect' + field + '-' + id + '-' + value
+				let foreignKey = fieldSchema[field].foreignKey
+				var queryString = 'fields=' + foreignKey.indirectField + '&ID=' + value
+				UpdateOpStatus(true)
+				$.getJSON('getRecords?table=' + foreignKey.table + '&' + queryString, jsonRecords => { AJAXCallback(jsonRecords, IndirectFieldCallback, null, indirect.replace(/id=/, '')) })
+
+			}
+			html += '<td class="td-padding ' + readOnly + '" ' + indirect + '>' + value + '</td>'
 		}
 		html += '</tr>'
 	})
@@ -468,8 +505,7 @@ function SmartInput(cell, options = null) {
 	var max = ''
 	var value = GetCellValue(cell)
 	var checked = (value) ? 'checked' : ''
-	var value = $(cell).text()
-	if (IsRangeField(fieldName)) {
+	if (IsRangeField(fieldName) && !IsBoolField(fieldName)) {
 		html = '<select class="smart-input">'
 		fieldSchema[fieldName].range.forEach(eachValue => {
 			html += '<option value="' + eachValue + '"'
@@ -482,7 +518,7 @@ function SmartInput(cell, options = null) {
 		options.forEach(eachOption => {
 			let keys = Object.keys(eachOption)
 			html += '<option value="' + eachOption[keys[1]] + '" id=option-' + eachOption[keys[0]]
-			html += (value === eachOption[keys[1]]) ? ' selected' : ''
+			html += (value === eachOption[keys[0]]) ? ' selected' : ''
 			html += '>' + eachOption[keys[1]] + '</option>'
 		})
 		html += '</select>'
