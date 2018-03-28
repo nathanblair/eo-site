@@ -233,3 +233,4 @@ function Router(request, response) {
 }
 
 var server = http.createServer(Router).listen(port)
+console.log('Server started! Listening on: ' + port)

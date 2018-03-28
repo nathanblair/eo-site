@@ -330,7 +330,7 @@ function EditKitCallback(updates) {
 }
 
 function IndirectFieldCallback(updates, indirect) {
-	var element = (typeof indirect === 'object') ? $('#' + indirect.row + ' >#' + indirect.cell) : indirect
+	var element = (indirect.cell) ? $('#' + indirect.row + ' >#' + indirect.cell) : indirect
 	$(element).text(Object.values(updates[0])[0])
 }
 
