@@ -4,6 +4,15 @@
 	border-radius: 8px;
 	border: solid 3px;
 }
+.app-button {
+	background-color: pink;
+	padding: 0.25em 1em;
+	margin: 0 4px;
+	border: none;
+	cursor: pointer;
+}
+.app-button:focus { outline: none; }
+.app-button:active { box-shadow: inset purple 0 0 8px; }
 
 .circular-button {
 	border-radius: 100%;

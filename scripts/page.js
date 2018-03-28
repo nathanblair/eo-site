@@ -23,10 +23,21 @@ $.get('main', data => {
 			if (fields.errno) { ThrowJSONError(fields) } else {
 				fieldSchema = fields
 				UpdateOpStatus(true)
-				$.getJSON('getRecords?' + FieldStringFromFieldSchema(fieldSchema) + '&table=' + pageTable, jsonRecords => {
+				$.getJSON('getRecords?' + FieldStringFromFieldSchema() + '&table=' + pageTable, jsonRecords => {
 					$('.db-table > thead > tr > th').after(FieldsToHTMLHeaders(jsonRecords[0]))
-					AJAXCallback(jsonRecords, RefreshCallback)
+					AJAXCallback(jsonRecords, RefreshCallback, null, 'base')
 				}) 
+			}
+		})
+	} else if ($('main .app-table').length > 0) {
+		pageTable = $('.app-table').attr('id')
+		$.getJSON('getFields?table=' + pageTable, fields => {
+			if (fields.errno) { ThrowJSONError(fields) } else {
+				fieldSchema = fields
+				UpdateOpStatus(true)
+				$.getJSON('getRecords?' + FieldStringFromTableHeaders() + '&Archived=0&Complete=0&table=' + pageTable, jsonRecords => {
+					AJAXCallback(jsonRecords, RefreshCallback, null, 'app')
+				})
 			}
 		})
 	}
@@ -78,9 +89,10 @@ $('body').on('change', '.select-toggle', eventArgs => UpdateCheckedRows(eventArg
 $('body').on('change', '.bulk-select-toggle', eventArgs => $(eventArgs.target).parents('thead').siblings('tbody').children('tr:not(.sub-table-row)').find('td > .select-toggle').prop('checked', eventArgs.target.checked).change())
 
 // ------------------------------------ Refresh icon clicked -------------------------------------//
-$('body').on('click', '.refresh', () => {
+$('body').on('click', '.refresh', eventArgs => {
 	UpdateOpStatus(true)
-	$.getJSON('getRecords?' + FieldStringFromFieldSchema() + '&table=' + pageTable, jsonRecords => AJAXCallback(jsonRecords, RefreshCallback))
+	var refreshContext = ($(eventArgs.currentTarget).closest('table').hasClass('app-table')) ? 'app' : 'base'
+	$.getJSON('getRecords?' + FieldStringFromFieldSchema() + '&table=' + pageTable, jsonRecords => AJAXCallback(jsonRecords, RefreshCallback, null, refreshContext))
 })
 
 // ------------------------------------ Create icon clicked --------------------------------------//
@@ -152,6 +164,31 @@ $('body').on('click', '.remove-kit', eventArgs => {
 	if (idArray.length) $.post('update?table=' + pageTable, JSON.stringify({ id:idArray, fields:{ParentID:""}}), updatedChildren => { AJAXCallback(updatedChildren, EditKitCallback) })
 })
 
+$('body').on('click', '.check-out', eventArgs => {
+	var id = GetCellID(eventArgs.currentTarget)
+	var checkedOutCell = $('#' + id + ' > td').eq(GetFieldIndex('CheckedOut'))
+	var checkedOutItemID = $('#' + id + ' > td').eq(GetFieldIndex('Item'))
+	$.getJSON('getRecords?table=Items&fields=ID&fields=ParentID', jsonRecords => {
+		var dateTime = (new Date(Date.now() - new Date().getTimezoneOffset() * 60000)).toISOString().replace(/\.[0-9]{3}Z$/, '').replace(/T/, ' ')
+		UpdateOpStatus(true)
+		$.post( 'update?table=' + pageTable, JSON.stringify({'id':[id], fields:{ 'CheckedOut': 1 } }), updates => { AJAXCallback(updates, UpdateCallback, ResetChangeCallback, checkedOutCell) }, 'json' )
+		UpdateOpStatus(true)
+		$.post( 'update?table=' + pageTable, JSON.stringify({ 'id':[id], fields:{ 'ActualCheckOutDateTime': dateTime }}), updates => { AJAXCallback(updates, UpdateCallback, ResetChangeCallback, checkedOutCell) }, 'json' )
+	})
+})
+
+$('body').on('click', '.check-in', eventArgs => {
+	var id = GetCellID(eventArgs.currentTarget)
+	var cell = $('#' + id + ' > td').eq(GetFieldIndex('CheckedOut'))
+	$.getJSON('getRecords?table=Items&fields=ID&fields=ParentID', jsonRecords => {
+		var dateTime = (new Date(Date.now() - new Date().getTimezoneOffset() * 60000)).toISOString().replace(/\.[0-9]{3}Z$/, '').replace(/T/, ' ')
+		UpdateOpStatus(true)
+		$.post( 'update?table=' + pageTable, JSON.stringify({ 'id':[id], fields:{ 'ActualCheckInDateTime': dateTime }}), updates => { AJAXCallback(updates, UpdateCallback, ResetChangeCallback, cell) }, 'json' )
+		UpdateOpStatus(true)
+		$.post( 'update?table=' + pageTable, JSON.stringify({ 'id':[id], fields:{ 'Complete': 1 } }), updates => { AJAXCallback(updates, UpdateCallback, ResetChangeCallback, cell) }, 'json' )
+	})
+})
+
 // ------------------------------------------------------------------------------------------------//
 // ------------------------------------------- CALLBACKS ------------------------------------------//
 // ------------------------------------------------------------------------------------------------//
@@ -161,11 +198,14 @@ function AJAXCallback(jsonResults, successCallback, errorCallback = null, callba
 	UpdateOpStatus(false)
 }
 
-function RefreshCallback(jsonRecords) { $('#bulk-ops-icons .bulk-select-toggle').prop('checked', false).siblings('label').removeAttr('style'); $('.db-table > tbody').html(JSONRecordsToHTMLRows(jsonRecords)); trackedRecords = {} }
+function RefreshCallback(jsonRecords, recordType = 'base') {
+	$('#bulk-ops-icons .bulk-select-toggle').prop('checked', false).siblings('label').removeAttr('style');
+	$('.db-table > tbody, .app-table > tbody').html(JSONRecordsToHTMLRows(jsonRecords, recordType)); trackedRecords = {}
+}
 
 function SubTableCallback(jsonRecords, action) {
 	$('.sub-table > thead > tr > th').after(FieldsToHTMLHeaders(jsonRecords[0]))
-	$('.sub-table > tbody').html(JSONRecordsToHTMLRows(jsonRecords, false, action))
+	$('.sub-table > tbody').html(JSONRecordsToHTMLRows(jsonRecords, action))
 }
 
 function DeleteCallback(errorList, originalList) {
@@ -223,13 +263,16 @@ function UpdateCallback(updates) {
 				}
 				$(GetRowSelector([recordParentID]) + ' > td > .show-children-toggle + label').toggleClass('disabled', state)
 			}
+			else if (key === 'CheckedOut') {
+				$('#' + record.ID + ' > td > .check-out').toggleClass('disabled', value)
+				$('#' + record.ID + ' > td > .check-in').toggleClass('disabled', !value)
+			}
 
 			var cell = $(GetRowSelector([record.ID])).children('td').eq(GetFieldIndex(key))
 			$(cell).text(value)
 			var row = GetRowSelector([record.ID])
 			let fieldName = GetFieldName($(cell).index())
 			if (IsIndirectField(fieldName)) {
-				$(cell).attr('id', 'indirect' + fieldName + '-' + record.ID + '-' + value)
 				let foreignKey = fieldSchema[fieldName].foreignKey
 				var queryString = 'fields=' + foreignKey.indirectField + '&ID=' + value
 				UpdateOpStatus(true)
@@ -237,6 +280,7 @@ function UpdateCallback(updates) {
 			}
 			var undoAble = !IsReadOnlyField(fieldName) && (RemoveTrackedRecords([record.ID], LeaveCellRemoveCondition).length === 0)
 			$(row + ' .undo').toggleClass('disabled', !undoAble)
+
 		}
 		UpdateShowKit(record.ID)
 	})
@@ -264,7 +308,7 @@ function UndoRowChange(id, originalRecord) {
 			$(cell).text(oldValue)
 			let fieldName = GetFieldName($(cell).index())
 			if (IsIndirectField(fieldName)) {
-				$(cell).attr('id', 'indirect' + fieldName + '-' + id + '-' + oldValue)
+				$(cell).attr('id', 'indirect' + fieldName + '-' + oldValue)
 				let foreignKey = fieldSchema[fieldName].foreignKey
 				var queryString = 'fields=' + foreignKey.indirectField + '&ID=' + oldValue
 				UpdateOpStatus(true)
@@ -285,8 +329,8 @@ function EditKitCallback(updates) {
 	$('.select-toggle:checked').prop('checked', false).change()
 }
 
-function IndirectFieldCallback(updates, cell) {
-	var element = (typeof cell === 'string') ? $('#' + cell.match(/-(\w+)/)[1] + '>#' + cell) : cell
+function IndirectFieldCallback(updates, indirect) {
+	var element = (typeof indirect === 'object') ? $('#' + indirect.row + ' >#' + indirect.cell) : indirect
 	$(element).text(Object.values(updates[0])[0])
 }
 
@@ -313,7 +357,7 @@ function GetIDArrayFromTarget(target) {
 	return idArray
 }
 function GetRowSelector(idArray) {
-	var rowSelector = '.db-table > tbody > '
+	var rowSelector = 'main > .responsive-table > table > tbody > '
 	idArray.forEach(eachID => rowSelector += 'tr#' + eachID + ',' )
 	return rowSelector.replace(/,$/, '')
 }
@@ -391,8 +435,8 @@ function ToggleSubTable(cell, state, action) {
 // ------------------------------------------------------------------------------------------------//
 function ThrowJSONError(json) { alert(JSON.stringify(json)) }
 
-function GetFieldName(index) { return $('.db-table > thead > tr > th').eq(index).text() }
-function GetFieldIndex(fieldName) { return $('.db-table > thead > tr > th').filter((index, element) => { return $(element).text() === fieldName }).index() }
+function GetFieldName(index) { return $('main').find('table > thead > tr > th').eq(index).text() }
+function GetFieldIndex(fieldName) { return $('main').find('table > thead > tr > th').filter((index, element) => { return $(element).text() === fieldName }).index() }
 
 function IsIntField(fieldName) { return fieldSchema[fieldName].type === 'INTEGER' || fieldName.match(/q(uanti)?ty|c(ou)?nt/i) }
 function IsNumberField(fieldName) { return fieldSchema[fieldName].type === 'NUMBER' || fieldName.match(/num(ber)?/i) }
@@ -446,6 +490,18 @@ function FieldStringFromFieldSchema() {
 	return fieldString.replace(/&$/, '')
 }
 
+function FieldStringFromTableHeaders() {
+	var fields = {}
+	$('main').find('table > thead > tr > th').each((index, header) => { if (fieldSchema[$(header).text()]) fields[$(header).text()] = fieldSchema[$(header).text()] })
+	var fieldString = 'fields=ID'
+	for ([field, value] of Object.entries(fields)) {
+		if (Object.keys(value.foreignKey).length) {
+			fieldString += '&fields=' + field + ',' + value.foreignKey.table + ',' + value.foreignKey.field
+		} else { fieldString += '&fields=' + field }
+	}
+	return fieldString.replace(/&$/, '')
+}
+
 function HTMLRowsToJSONRecords(jqueryRows) {
 	var jsonRecords = {}
 	$(jqueryRows).each((rowIndex, row) => {
@@ -456,17 +512,18 @@ function HTMLRowsToJSONRecords(jqueryRows) {
 	return jsonRecords
 }
 
-function JSONRecordsToHTMLRows(jsonRecords, baseRecords = true, action = null) {
+function JSONRecordsToHTMLRows(jsonRecords, recordType = 'base') {
 	var html = ''
 	var id = null
 	var parentArray = jsonRecords.filter(record => record.ParentID !== null).map(record => record.ParentID)
 	jsonRecords.forEach(eachRecord => {
 		id = eachRecord.ID
-		if (baseRecords) {
+		if (id == 0) return
+		if (recordType === 'base') {
+			html += '<tr id="' + id + '"><td class="read-only">'
 			var enableKit = ''
 			if (eachRecord.ParentID !== '' | eachRecord.CanCheckOut) enableKit = 'disabled'
 			var enableChildren = (parentArray.indexOf(id) > -1) ? '' : 'disabled'
-			html += '<tr id="' + id + '"><td class="read-only">'
 			if (fieldSchema.hasOwnProperty('ParentID')) {
 				html += '<input type="checkbox" id="show-children-' + id + '" class="display-none show-children-toggle toggle">\
 				<label for="show-children-' + id + '" class="line-icon ' + enableChildren + '" title="Show items in this kit"></label>'
@@ -479,26 +536,34 @@ function JSONRecordsToHTMLRows(jsonRecords, baseRecords = true, action = null) {
 				<label for="show-kit-' + id + '" class="line-icon ' + enableKit + '" title="Show a list of items to create a kit"></label>'
 			}
 			html += '<img src="/icons/undo.svg" class="undo line-icon disabled" title="Undo all changes to this record"></td>'
-		} else if (action === 'manage') {
+		} else if (recordType === 'manage') {
 			html += '<tr><td class="read-only"><input type="checkbox" id="bulk-select-sub-table-' + id + '" class="display-none toggle select-toggle">\
 				<label for="bulk-select-sub-table-' + id + '" class="checkbox-icon line-icon"></label>\
 				<img src="/icons/delete.svg" class="remove-kit line-icon" title="Remove this item from the kit"></td>'
-		} else if (action === 'edit') {
+		} else if (recordType === 'edit') {
 			html += '<tr><td class="read-only"><input type="radio" id="select-kit-' + id + '" class="display-none radio" name="kit-select">\
 				<label for="select-kit-' + id + '" class="radio-icon line-icon" title="Select to add this as the parent in the kit"></td>'
-		} else { html += '<tr>'}
+		} else if (recordType === 'app') {
+			var checkedOut = (eachRecord.CheckedOut) ? 'disabled' : ''
+			var checkedIn = (!checkedOut) ? 'disabled' : ''
+			html += '<tr id="' + id + '"><td class="read-only"><button type="button" class="app-button check-out ' + checkedOut + '">Check Out</button>\
+				<button type="button" class="app-button check-in ' + checkedIn + '">Check In</button></td>'
+		} else { html += '<tr><td></td>'}
 		for (let [field, value] of Object.entries(eachRecord)) {
+			if (field === 'ID' && recordType === 'app') continue
 			let readOnly = (field.includes("ID")) ? 'read-only' : ''
-			let indirect = ''
+			let indirect = {row:'', cell:''}
+			let indirectCell = ''
 			if (fieldSchema[field].foreignKey.indirectField) {
-				indirect = 'id=indirect' + field + '-' + id + '-' + value
+				indirectCell = 'id=indirect' + field + '-' + value
+				indirect.row = id
+				indirect.cell = indirectCell.replace(/id=/, '')
 				let foreignKey = fieldSchema[field].foreignKey
 				var queryString = 'fields=' + foreignKey.indirectField + '&ID=' + value
 				UpdateOpStatus(true)
-				$.getJSON('getRecords?table=' + foreignKey.table + '&' + queryString, jsonRecords => { AJAXCallback(jsonRecords, IndirectFieldCallback, null, indirect.replace(/id=/, '')) })
-
+				$.getJSON('getRecords?table=' + foreignKey.table + '&' + queryString, jsonRecords => { AJAXCallback(jsonRecords, IndirectFieldCallback, null, indirect) })
 			}
-			html += '<td class="td-padding ' + readOnly + '" ' + indirect + '>' + value + '</td>'
+			html += '<td class="td-padding ' + readOnly + '" ' + indirectCell + '>' + value + '</td>'
 		}
 		html += '</tr>'
 	})
@@ -516,7 +581,7 @@ function SmartInput(cell, options = null) {
 	var pattern = ''
 	var checked = (value) ? 'checked' : ''
 	if (IsRangeField(fieldName) && !IsBoolField(fieldName)) {
-		html = '<se1ect class="smart-input">'
+		html = '<select class="smart-input">'
 		fieldSchema[fieldName].range.forEach(eachValue => {
 			html += '<option value="' + eachValue + '"'
 			html += (value === eachValue) ? ' selected' : ''

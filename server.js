@@ -119,7 +119,7 @@ function GetRecords(db, table, response, filterClause = '', params = [], fields 
 			for (let [key, value] of Object.entries(filterClause)) {
 				let op = value[0] === '!' ? ' NOT IN (' : ' IN ('
 				let paramValues = value.replace(/^[!\|<>]/,'').split(',')
-				tempClause += key + op
+				tempClause += table + '.' + key + op
 				paramValues.forEach(param => { if (param !== "") { tempClause += '?,'; params.push(param) } })
 				tempClause = tempClause.replace(/,$/, '')
 				tempClause += ') AND '
