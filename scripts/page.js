@@ -18,29 +18,11 @@ if (window.location.pathname !== '/') {
 // ----------------------------- Get main html and get any associated records ---------------------//
 $.get('main', data => {
 	$('main').html(data)
-	if ($('main .db-table').length > 0) {
-		$.getJSON('getFields?table=' + pageTable, fields => {
-			if (fields.errno) { ThrowJSONError(fields) } else {
-				fieldSchema = fields
-				UpdateOpStatus(true)
-				$.getJSON('getRecords?' + FieldStringFromFieldSchema() + '&table=' + pageTable, jsonRecords => {
-					$('.db-table > thead > tr > th').after(FieldsToHTMLHeaders(jsonRecords[0]))
-					AJAXCallback(jsonRecords, RefreshCallback, null, 'base')
-				}) 
-			}
-		})
-	} else if ($('main .app-table').length > 0) {
-		pageTable = $('.app-table').attr('id')
-		$.getJSON('getFields?table=' + pageTable, fields => {
-			if (fields.errno) { ThrowJSONError(fields) } else {
-				fieldSchema = fields
-				UpdateOpStatus(true)
-				$.getJSON('getRecords?' + FieldStringFromTableHeaders() + '&Archived=0&Complete=0&table=' + pageTable, jsonRecords => {
-					AJAXCallback(jsonRecords, RefreshCallback, null, 'app')
-				})
-			}
-		})
-	}
+	pageTable = $('.app-table').attr('id') || pageTable
+	$.getJSON('getFields?table=' + pageTable, fields => {
+		if (fields.errno) { ThrowJSONError(fields); return }
+		fieldSchema = fields; $('.db-table > thead > tr > th').after(FieldsToHTMLHeaders(fields)); $('.refresh').click()
+	})
 })
 
 // ------------------------------------------------------------------------------------------------//
@@ -57,8 +39,8 @@ $('body').on('dblclick touchend', '.db-table > tbody > tr > td:not(.read-only, .
 		if (!trackedRecords[id]) for (let [recordID, record] of Object.entries(HTMLRowsToJSONRecords($(GetRowSelector([id]))))) { trackedRecords[recordID] = record }
 		var fieldName = GetFieldName($(cell).index())
 		if (IsIndirectField(fieldName)) {
+			var queryString = 'fields=' + fieldSchema[fieldName].foreignKey.field + '&fields=' + fieldSchema[fieldName].foreignKey.indirectField + WhereStringFromWhereClass(GetFieldName($(cell).index()) + '-input')
 			UpdateOpStatus(true)
-			var queryString = 'fields=' + fieldSchema[fieldName].foreignKey.field + '&fields=' + fieldSchema[fieldName].foreignKey.indirectField + '&CanCheckOut=1&Archived=0'
 			$.getJSON('getRecords?table=' + fieldSchema[fieldName].foreignKey.table + '&' + queryString, jsonRecords => { AJAXCallback(jsonRecords, OpenSmartInput, null, cell) })
 		} else { OpenSmartInput(null, cell) }
 	}
@@ -91,8 +73,11 @@ $('body').on('change', '.bulk-select-toggle', eventArgs => $(eventArgs.target).p
 // ------------------------------------ Refresh icon clicked -------------------------------------//
 $('body').on('click', '.refresh', eventArgs => {
 	UpdateOpStatus(true)
-	var refreshContext = ($(eventArgs.currentTarget).closest('table').hasClass('app-table')) ? 'app' : 'base'
-	$.getJSON('getRecords?' + FieldStringFromFieldSchema() + '&table=' + pageTable, jsonRecords => AJAXCallback(jsonRecords, RefreshCallback, null, refreshContext))
+	var refreshContext = 'base'
+	var whereString = WhereStringFromWhereClass('all')
+	var fieldString = FieldStringFromFieldSchema()
+	if ($('.app-table').length > 0) { fieldString = FieldStringFromTableHeaders(); refreshContext = 'app' }
+	$.getJSON('getRecords?table=' + pageTable + fieldString + whereString, jsonRecords => AJAXCallback(jsonRecords, RefreshCallback, null, refreshContext))
 })
 
 // ------------------------------------ Create icon clicked --------------------------------------//
@@ -164,28 +149,57 @@ $('body').on('click', '.remove-kit', eventArgs => {
 	if (idArray.length) $.post('update?table=' + pageTable, JSON.stringify({ id:idArray, fields:{ParentID:""}}), updatedChildren => { AJAXCallback(updatedChildren, EditKitCallback) })
 })
 
+// ------------------------------------ Check-out icon clicked ------------------------------------//
 $('body').on('click', '.check-out', eventArgs => {
 	var id = GetCellID(eventArgs.currentTarget)
 	var checkedOutCell = $('#' + id + ' > td').eq(GetFieldIndex('CheckedOut'))
-	var checkedOutItemID = $('#' + id + ' > td').eq(GetFieldIndex('Item'))
+	var checkOutDateCell = $('#' + id + ' > td').eq(GetFieldIndex('ActualCheckOutDateTime'))
+	var checkedOutItemID = $('#' + id + ' > td').eq(GetFieldIndex('Item')).attr('id').match(/\-(\w+)/)[1]
+	checkedOutItemID = (IsIntField('Item') || IsNumberField('Item')) ? Number(checkedOutItemID) : checkedOutItemID
 	$.getJSON('getRecords?table=Items&fields=ID&fields=ParentID', jsonRecords => {
-		var dateTime = (new Date(Date.now() - new Date().getTimezoneOffset() * 60000)).toISOString().replace(/\.[0-9]{3}Z$/, '').replace(/T/, ' ')
+		var affectedIDs = [checkedOutItemID]
+		var idArray = []
+		jsonRecords.forEach((record, recordIndex) => { idPair = Object.values(record); idArray.push([idPair[0], idPair[1]]) })
+		affectedIDs = BuildDependencyTree(affectedIDs, idArray, checkedOutItemID)
+
 		UpdateOpStatus(true)
-		$.post( 'update?table=' + pageTable, JSON.stringify({'id':[id], fields:{ 'CheckedOut': 1 } }), updates => { AJAXCallback(updates, UpdateCallback, ResetChangeCallback, checkedOutCell) }, 'json' )
-		UpdateOpStatus(true)
-		$.post( 'update?table=' + pageTable, JSON.stringify({ 'id':[id], fields:{ 'ActualCheckOutDateTime': dateTime }}), updates => { AJAXCallback(updates, UpdateCallback, ResetChangeCallback, checkedOutCell) }, 'json' )
+		$.post('update?table=Items', JSON.stringify({ 'id':affectedIDs, fields:{ 'InStock': 0 }}), updates => {
+			UpdateOpStatus(false)
+			// Create an array of new affectedID's of only the ID's that were brought back as updated
+			if (updates.length === affectedIDs.length) {
+				var dateTime = (new Date(Date.now() - new Date().getTimezoneOffset() * 60000)).toISOString().replace(/\.[0-9]{3}Z$/, '').replace(/T/, ' ')
+				UpdateOpStatus(true)
+				$.post('update?table=' + pageTable, JSON.stringify({'id':[id], fields:{ 'CheckedOut': 1 } }), updates => { AJAXCallback(updates, UpdateCallback, ResetChangeCallback, checkedOutCell) }, 'json' )
+				// UpdateOpStatus(true)
+				// $.post('update?table=' + pageTable, JSON.stringify({ 'id':[id], fields:{ 'ActualCheckOutDateTime': dateTime }}), updates => { AJAXCallback(updates, UpdateCallback, ResetChangeCallback, checkOutDateCell) }, 'json' )
+			}
+		}, 'json')
 	})
 })
 
+// ------------------------------------ Check-in icon clicked -------------------------------------//
 $('body').on('click', '.check-in', eventArgs => {
 	var id = GetCellID(eventArgs.currentTarget)
-	var cell = $('#' + id + ' > td').eq(GetFieldIndex('CheckedOut'))
-	$.getJSON('getRecords?table=Items&fields=ID&fields=ParentID', jsonRecords => {
-		var dateTime = (new Date(Date.now() - new Date().getTimezoneOffset() * 60000)).toISOString().replace(/\.[0-9]{3}Z$/, '').replace(/T/, ' ')
-		UpdateOpStatus(true)
-		$.post( 'update?table=' + pageTable, JSON.stringify({ 'id':[id], fields:{ 'ActualCheckInDateTime': dateTime }}), updates => { AJAXCallback(updates, UpdateCallback, ResetChangeCallback, cell) }, 'json' )
-		UpdateOpStatus(true)
-		$.post( 'update?table=' + pageTable, JSON.stringify({ 'id':[id], fields:{ 'Complete': 1 } }), updates => { AJAXCallback(updates, UpdateCallback, ResetChangeCallback, cell) }, 'json' )
+	var checkedInItemID = $('#' + id + ' > td').eq(GetFieldIndex('Item')).attr('id').match(/\-(\w+)/)[1]
+	checkedInItemID = (IsIntField('Item') || IsNumberField('Item')) ? Number(checkedInItemID) : checkedInItemID
+
+	$.getJSON('getRecords?table=Items&fields=ID&fields=ParentID&fields=IsCheckOutReusable', jsonResults => {
+		var idArray = []
+		jsonResults.forEach((record, recordIndex) => { idPair = Object.values(record); idArray.push([idPair[0], idPair[1]]) })
+		var affectedIDs = BuildDependencyTree([], idArray, checkedInItemID)
+		var childIDs = BuildDependencyTree([], idArray, checkedInItemID, 0)
+		affectedIDs = affectedIDs.filter(eachID => childIDs.indexOf(eachID) === -1)
+		var archived = 'Archived'
+		var inStock = ''
+		if (jsonResults[jsonResults.ID = checkedInItemID].IsCheckOutReusable) { archived = ''; inStock = 'InStock' }
+
+		$.post('update?table=Items', JSON.stringify({ 'id':childIDs, fields:{ 'InStock': 1, 'ParentID': '' }}), () => {}, 'json') 
+		.done(() => { $.post('update?table=Items', JSON.stringify({ 'id':affectedIDs, fields:{ 'InStock': -1 }}), () => {}) }, 'json')
+		.done(() => { $.post('update?table=Items', JSON.stringify({ 'id':[checkedInItemID], fields:{ archived : 1, inStock : 1 }}), () => {}, 'json') })
+		.done(() => {
+			var dateTime = (new Date(Date.now() - new Date().getTimezoneOffset() * 60000)).toISOString().replace(/\.[0-9]{3}Z$/, '').replace(/T/, ' ')
+			$.post( 'update?table=' + pageTable, JSON.stringify({ 'id':[id], fields:{ 'ActualCheckInDateTime': dateTime, 'CheckedOut': 0, 'Complete': 1 }}), updates => { AJAXCallback(updates, UpdateCallback, null) }, 'json' )
+		})
 	})
 })
 
@@ -282,7 +296,7 @@ function UpdateCallback(updates) {
 			$(row + ' .undo').toggleClass('disabled', !undoAble)
 
 		}
-		UpdateShowKit(record.ID)
+		if (record.ParentID) UpdateShowKit(record.ID)
 	})
 }
 
@@ -389,6 +403,24 @@ function RemoveTrackedRecords(removeList, TestCondition, Callback = null) {
 	return removedList
 }
 
+function BuildDependencyTree(pushArray, searchArray, idToFind, nestLimit = -1, nestValue = 0) {
+	searchArray.forEach(idPair => {
+		if (idPair[1] === idToFind) {
+			pushArray.push(idPair[0]);
+			nestValue++
+			if (nestLimit === -1 || nestValue < nestLimit) {
+				pushArray = BuildDependencyTree(pushArray, searchArray, idPair[0], nestLimit, nestValue)
+			}
+		}
+	})
+	return pushArray
+}
+
+function BuildFirstChildTree(childArray, searchArray, parentID) {
+	searchArray.forEach(idPair => { if (idPair[1] === idToFind) { pushArray.push(idPair[0]) } })
+	return pushArray
+}
+
 function GetOriginalRecordValues(idArray) {
 	if (Object.keys(trackedRecords).length === 0) return []
 	var changedRecords = []
@@ -436,7 +468,11 @@ function ToggleSubTable(cell, state, action) {
 function ThrowJSONError(json) { alert(JSON.stringify(json)) }
 
 function GetFieldName(index) { return $('main').find('table > thead > tr > th').eq(index).text() }
-function GetFieldIndex(fieldName) { return $('main').find('table > thead > tr > th').filter((index, element) => { return $(element).text() === fieldName }).index() }
+function GetFieldIndex(fieldName) {
+	var index = $('main').find('table > thead > tr > th').filter((index, element) => { return $(element).text() === fieldName }).index()
+	if (index === -1) { throw "Field name not found in headers!"; return }
+	return index
+}
 
 function IsIntField(fieldName) { return fieldSchema[fieldName].type === 'INTEGER' || fieldName.match(/q(uanti)?ty|c(ou)?nt/i) }
 function IsNumberField(fieldName) { return fieldSchema[fieldName].type === 'NUMBER' || fieldName.match(/num(ber)?/i) }
@@ -484,22 +520,28 @@ function FieldStringFromFieldSchema() {
 	var fieldString = ''
 	for ([field, value] of Object.entries(fieldSchema)) {
 		if (Object.keys(value.foreignKey).length) {
-			fieldString += 'fields=' + field + ',' + value.foreignKey.table + ',' + value.foreignKey.field + '&'
-		} else { fieldString += 'fields=' + field + '&' }
+			fieldString += '&fields=' + field + ',' + value.foreignKey.table + ',' + value.foreignKey.field
+		} else { fieldString += '&fields=' + field }
 	}
-	return fieldString.replace(/&$/, '')
+	return fieldString
 }
 
 function FieldStringFromTableHeaders() {
 	var fields = {}
 	$('main').find('table > thead > tr > th').each((index, header) => { if (fieldSchema[$(header).text()]) fields[$(header).text()] = fieldSchema[$(header).text()] })
-	var fieldString = 'fields=ID'
+	var fieldString = '&fields=ID'
 	for ([field, value] of Object.entries(fields)) {
 		if (Object.keys(value.foreignKey).length) {
 			fieldString += '&fields=' + field + ',' + value.foreignKey.table + ',' + value.foreignKey.field
 		} else { fieldString += '&fields=' + field }
 	}
-	return fieldString.replace(/&$/, '')
+	return fieldString
+}
+
+function WhereStringFromWhereClass(contextClass) {
+	var whereString = ''
+	$('.where-clause > span.' + contextClass).each((index, element) => { whereString += '&' + $(element).attr('id') + '=' + $(element).text() })
+	return whereString
 }
 
 function HTMLRowsToJSONRecords(jqueryRows) {
@@ -545,7 +587,7 @@ function JSONRecordsToHTMLRows(jsonRecords, recordType = 'base') {
 				<label for="select-kit-' + id + '" class="radio-icon line-icon" title="Select to add this as the parent in the kit"></td>'
 		} else if (recordType === 'app') {
 			var checkedOut = (eachRecord.CheckedOut) ? 'disabled' : ''
-			var checkedIn = (!checkedOut) ? 'disabled' : ''
+			var checkedIn = (!eachRecord.CheckedOut) ? 'disabled' : ''
 			html += '<tr id="' + id + '"><td class="read-only"><button type="button" class="app-button check-out ' + checkedOut + '">Check Out</button>\
 				<button type="button" class="app-button check-in ' + checkedIn + '">Check In</button></td>'
 		} else { html += '<tr><td></td>'}

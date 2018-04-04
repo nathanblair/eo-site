@@ -29,6 +29,7 @@ function Create(db, table, response) {
 function Update(db, table, recordToUpdate, response) {
 	var updateRecord = JSON.parse(recordToUpdate)
 	var updateClause = ''
+	console.log(updateRecord.fields)
 	for (var eachField in updateRecord.fields) { updateClause += eachField + '=$' + eachField + ',' }
 	updateClause = updateClause.replace(/,$/, '')
 	
@@ -44,11 +45,10 @@ function Update(db, table, recordToUpdate, response) {
 	if (updateRecord.foreignKey && updateRecord.foreignKey.foreignField) returnFields + ',' + Object.keys(updateRecord.fields).toString() + ',' + updateRecord.foreignKey.table + ',' + updateRecord.foreignKey.field
 	if (updateRecord.foreignKey && updateRecord.foreignKey.indirectField) returnFields + ',' + updateRecord.foreignKey.indirectField
 	returnFields = ['ID'].concat([returnFields])
-
 	var getID = updateRecord.id
 
 	db.run(sql, params, function(error) {
-		if (error) { db.close(); error['id'] = updateRecord.id; ReturnJSON(error, response) }
+		if (error) { db.close(); error['id'] = updateRecord.id; error['sql'] = sql; error['params'] = params; ReturnJSON(error, response) }
 		else { GetRecords(db, table, response, whereClause, getID, returnFields) }
 	})
 }
@@ -100,6 +100,7 @@ function GetFields(db, table, response) {
 function GetRecords(db, table, response, filterClause = '', params = [], fields = '*') {
 	var selectFields = ''
 	var innerJoins = []
+	console.log(fields)
 	if (fields !== '*') {
 		fields.forEach(eachField => {
 			let [localField, foreignTable, foreignField, indirectField] = eachField.split(',')
@@ -119,7 +120,7 @@ function GetRecords(db, table, response, filterClause = '', params = [], fields 
 			for (let [key, value] of Object.entries(filterClause)) {
 				let op = value[0] === '!' ? ' NOT IN (' : ' IN ('
 				let paramValues = value.replace(/^[!\|<>]/,'').split(',')
-				tempClause += table + '.' + key + op
+				tempClause += (key.indexOf('.') > 0) ? key + op : table + '.' + key + op
 				paramValues.forEach(param => { if (param !== "") { tempClause += '?,'; params.push(param) } })
 				tempClause = tempClause.replace(/,$/, '')
 				tempClause += ') AND '
@@ -131,7 +132,7 @@ function GetRecords(db, table, response, filterClause = '', params = [], fields 
 
 	db.all(sql, params, function(error, rows) {
 		db.close()
-		if (error) { ReturnJSON(error, response) } else { ReturnJSON(rows, response) }
+		if (error) { console.log(error); ReturnJSON(error, response) } else { ReturnJSON(rows, response) }
 	})
 }
 
