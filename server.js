@@ -30,7 +30,6 @@ function Create(db, table, response) {
 function Update(db, table, recordToUpdate, response) {
 	var updateRecord = JSON.parse(recordToUpdate)
 	var updateClause = ''
-	console.log(updateRecord.fields)
 	for (var eachField in updateRecord.fields) { updateClause += eachField + '=$' + eachField + ',' }
 	updateClause = updateClause.replace(/,$/, '')
 	
@@ -42,10 +41,10 @@ function Update(db, table, recordToUpdate, response) {
 	var sql = 'UPDATE ' + table + ' SET ' + updateClause + whereClause 
 	var params = Object.values(updateRecord.fields)
 	params = params.concat(updateRecord.id)
-	var returnFields = Object.keys(updateRecord.fields).toString()
+	var returnFields = Object.keys(updateRecord.fields)
 	if (updateRecord.foreignKey && updateRecord.foreignKey.foreignField) returnFields + ',' + Object.keys(updateRecord.fields).toString() + ',' + updateRecord.foreignKey.table + ',' + updateRecord.foreignKey.field
 	if (updateRecord.foreignKey && updateRecord.foreignKey.indirectField) returnFields + ',' + updateRecord.foreignKey.indirectField
-	returnFields = ['ID'].concat([returnFields])
+	returnFields = ['ID'].concat(returnFields)
 	var getID = updateRecord.id
 
 	db.run(sql, params, function(error) {
@@ -101,7 +100,6 @@ function GetFields(db, table, response) {
 function GetRecords(db, table, response, filterClause = '', params = [], fields = '*') {
 	var selectFields = ''
 	var innerJoins = []
-	console.log(fields)
 	if (fields !== '*') {
 		fields.forEach(eachField => {
 			let [localField, foreignTable, foreignField, indirectField] = eachField.split(',')

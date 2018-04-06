@@ -169,9 +169,7 @@ $('body').on('click', '.check-out', eventArgs => {
 			if (updates.length === affectedIDs.length) {
 				var dateTime = (new Date(Date.now() - new Date().getTimezoneOffset() * 60000)).toISOString().replace(/\.[0-9]{3}Z$/, '').replace(/T/, ' ')
 				UpdateOpStatus(true)
-				$.post('update?table=' + pageTable, JSON.stringify({'id':[id], fields:{ 'CheckedOut': 1 } }), updates => { AJAXCallback(updates, UpdateCallback, ResetChangeCallback, checkedOutCell) }, 'json' )
-				// UpdateOpStatus(true)
-				// $.post('update?table=' + pageTable, JSON.stringify({ 'id':[id], fields:{ 'ActualCheckOutDateTime': dateTime }}), updates => { AJAXCallback(updates, UpdateCallback, ResetChangeCallback, checkOutDateCell) }, 'json' )
+				$.post('update?table=' + pageTable, JSON.stringify({'id':[id], fields:{ 'CheckedOut': 1, 'ActualCheckOutDateTime': dateTime } }), updates => { AJAXCallback(updates, UpdateCallback, ResetChangeCallback) }, 'json' )
 			}
 		}, 'json')
 	})
@@ -183,23 +181,27 @@ $('body').on('click', '.check-in', eventArgs => {
 	var checkedInItemID = $('#' + id + ' > td').eq(GetFieldIndex('Item')).attr('id').match(/\-(\w+)/)[1]
 	checkedInItemID = (IsIntField('Item') || IsNumberField('Item')) ? Number(checkedInItemID) : checkedInItemID
 
+	UpdateOpStatus(true)
 	$.getJSON('getRecords?table=Items&fields=ID&fields=ParentID&fields=IsCheckOutReusable', jsonResults => {
+		UpdateOpStatus(false)
 		var idArray = []
 		jsonResults.forEach((record, recordIndex) => { idPair = Object.values(record); idArray.push([idPair[0], idPair[1]]) })
 		var affectedIDs = BuildDependencyTree([], idArray, checkedInItemID)
 		var childIDs = BuildDependencyTree([], idArray, checkedInItemID, 0)
 		affectedIDs = affectedIDs.filter(eachID => childIDs.indexOf(eachID) === -1)
-		var archived = 'Archived'
-		var inStock = ''
-		if (jsonResults[jsonResults.ID = checkedInItemID].IsCheckOutReusable) { archived = ''; inStock = 'InStock' }
+		var checkIn = {}
+		var checkInField = (jsonResults[jsonResults.ID = checkedInItemID].IsCheckOutReusable) ? 'InStock' : 'Archived'
+		checkIn[checkInField] = 1
 
-		$.post('update?table=Items', JSON.stringify({ 'id':childIDs, fields:{ 'InStock': 1, 'ParentID': '' }}), () => {}, 'json') 
-		.done(() => { $.post('update?table=Items', JSON.stringify({ 'id':affectedIDs, fields:{ 'InStock': -1 }}), () => {}) }, 'json')
-		.done(() => { $.post('update?table=Items', JSON.stringify({ 'id':[checkedInItemID], fields:{ archived : 1, inStock : 1 }}), () => {}, 'json') })
+		UpdateOpStatus(true, 4)
+		$.post('update?table=Items', JSON.stringify({ 'id':childIDs, fields:{ 'InStock': 1, 'ParentID': '' }}), () => { UpdateOpStatus(false) }, 'json') 
+		.done(() => { $.post('update?table=Items', JSON.stringify({ 'id':affectedIDs, fields:{ 'InStock': -1 }}), () => { UpdateOpStatus(false) }) }, 'json')
+		.done(() => { $.post('update?table=Items', JSON.stringify({ 'id':[checkedInItemID], fields:checkIn}), () => { UpdateOpStatus(false) }, 'json') })
 		.done(() => {
 			var dateTime = (new Date(Date.now() - new Date().getTimezoneOffset() * 60000)).toISOString().replace(/\.[0-9]{3}Z$/, '').replace(/T/, ' ')
 			$.post( 'update?table=' + pageTable, JSON.stringify({ 'id':[id], fields:{ 'ActualCheckInDateTime': dateTime, 'CheckedOut': 0, 'Complete': 1 }}), updates => { AJAXCallback(updates, UpdateCallback, null) }, 'json' )
 		})
+		.done(() => { $('#' + id).remove() })
 	})
 })
 
@@ -282,7 +284,9 @@ function UpdateCallback(updates) {
 				$('#' + record.ID + ' > td > .check-in').toggleClass('disabled', !value)
 			}
 
-			var cell = $(GetRowSelector([record.ID])).children('td').eq(GetFieldIndex(key))
+			var fieldIndex = GetFieldIndex(key)
+			if (fieldIndex < 0) continue
+			var cell = $(GetRowSelector([record.ID])).children('td').eq(fieldIndex)
 			$(cell).text(value)
 			var row = GetRowSelector([record.ID])
 			let fieldName = GetFieldName($(cell).index())
@@ -318,7 +322,9 @@ function UndoRowChange(id, originalRecord) {
 	newRecord = newRecord[Object.keys(newRecord)[0]]
 	for (let [oldField, oldValue] of Object.entries(originalRecord)) {
 		if (oldValue !== newRecord[oldField]) {
-			let cell = $('#' + id + ' > td:eq(' + GetFieldIndex(oldField) + ')')
+			var fieldIndex = GetFieldIndex(oldField)
+			if (fieldIndex < 0) continue
+			let cell = $('#' + id + ' > td:eq(' + fieldIndex + ')')
 			$(cell).text(oldValue)
 			let fieldName = GetFieldName($(cell).index())
 			if (IsIndirectField(fieldName)) {
@@ -468,11 +474,7 @@ function ToggleSubTable(cell, state, action) {
 function ThrowJSONError(json) { alert(JSON.stringify(json)) }
 
 function GetFieldName(index) { return $('main').find('table > thead > tr > th').eq(index).text() }
-function GetFieldIndex(fieldName) {
-	var index = $('main').find('table > thead > tr > th').filter((index, element) => { return $(element).text() === fieldName }).index()
-	if (index === -1) { throw "Field name not found in headers!"; return }
-	return index
-}
+function GetFieldIndex(fieldName) { return $('main').find('table > thead > tr > th').filter((index, element) => { return $(element).text() === fieldName }).index() }
 
 function IsIntField(fieldName) { return fieldSchema[fieldName].type === 'INTEGER' || fieldName.match(/q(uanti)?ty|c(ou)?nt/i) }
 function IsNumberField(fieldName) { return fieldSchema[fieldName].type === 'NUMBER' || fieldName.match(/num(ber)?/i) }
