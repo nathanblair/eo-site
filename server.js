@@ -1,4 +1,5 @@
 const port = 8080
+const host = 'eo-pi.eo'
 const http = require('http')
 const urllib = require('url')
 const querylib = require('querystring')
@@ -233,5 +234,6 @@ function Router(request, response) {
 	else { HandleDatabaseRequest(host, urlPath, response, action, urlQuery) }
 }
 
-var server = http.createServer(Router).listen(port)
-console.log('Server started! Listening on: ' + port)
+var server = http.createServer(Router)
+server.listen(port, host)
+console.log('Server started! Listening at ' + host + ' on: ' + port)
