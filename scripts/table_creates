@@ -1,0 +1,27 @@
+CREATE TABLE "Items" (
+	`ID` INTEGER NOT NULL UNIQUE,
+	`ParentID` INTEGER DEFAULT "",
+	`Name` TEXT NOT NULL DEFAULT "",
+	`Type` TEXT NOT NULL DEFAULT "",
+	`Brand` TEXT NOT NULL DEFAULT "",
+	`Description` TEXT DEFAULT "",
+	`Pieces` INTEGER NOT NULL DEFAULT 1 CHECK(Pieces >= 0),
+	`WorkingQuantity` INTEGER NOT NULL DEFAULT 1 CHECK(WorkingQuantity >= 0),
+	`BrokenQuantity` INTEGER NOT NULL DEFAULT 1 CHECK(BrokenQuantity >= 0),
+	`Size` TEXT NOT NULL DEFAULT "" CHECK(Size IN ("", "Small", "Medium", "Large")),
+	`MinStudentsPerItem` INTEGER NOT NULL DEFAULT 1 CHECK(MinStudentsPerItem >= 0),
+	`Mass_g` NUMERIC NOT NULL DEFAULT 0.0,
+	`Volume_mL` NUMERIC NOT NULL DEFAULT 0.0,
+	`Length_cm` NUMERIC NOT NULL DEFAULT 0.0,
+	`Width_cm` NUMERIC NOT NULL DEFAULT 0.0,
+	`Depth_cm` NUMERIC NOT NULL DEFAULT 0.0,
+	`Diameter_cm` NUMERIC NOT NULL DEFAULT 0.0,
+	`Consumable` INTEGER NOT NULL DEFAULT 0 CHECK(Consumable IN ( - 1 , 0 , 1 )),
+	`InStock` INTEGER NOT NULL DEFAULT 1 CHECK(InStock IN ( - 1 , 0 , 1 )),
+	`CanCheckOut` INTEGER NOT NULL DEFAULT 0 CHECK(CanCheckOut IN ( - 1 , 0 , 1 )),
+	`IsCheckOutReusable` INTEGER NOT NULL DEFAULT 0 CHECK(IsCheckOutReusable = 0 OR (IsCheckOutReusable = 1 AND CanCheckOut = 1)),
+	`Archived` INTEGER NOT NULL DEFAULT 0 CHECK(Archived IN ( - 1 , 0 , 1 )),
+	PRIMARY KEY(`ID`)
+)
+
+	`IsCheckOutReusable` INTEGER NOT NULL DEFAULT 0 CHECK((IsCheckOutReusable = 1 AND CanCheckOut = 1) OR IsCheckOutReusable = 0),
