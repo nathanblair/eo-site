@@ -5,6 +5,5 @@ function Database(path) {
 		return 'Error: ' + error
 	})
 }
-//Stuff
 
 exports.Database = Database
